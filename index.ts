@@ -30,6 +30,9 @@
  * CLI flag: `--think <paradigm|auto>` starts a session with that paradigm active.
  */
 
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -41,6 +44,12 @@ import { renderWorkflowResult, runWorkflow, type ModelCallResult } from "./workf
 
 const ENTRY_TYPE = "think-different";
 const STATUS_KEY = "think";
+/**
+ * Skill paths from `resources_discover` are resolved against the session cwd, so a relative
+ * "skills/..." would only resolve when Pi happens to run inside this extension's folder.
+ * Anchor the bundled skill to this file's own directory instead.
+ */
+const SKILL_PATH = join(dirname(fileURLToPath(import.meta.url)), "skills", "think-different", "SKILL.md");
 
 type ThinkMode = "off" | "sticky" | "once" | "auto";
 
@@ -149,7 +158,7 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("resources_discover", async () => ({
-		skillPaths: ["skills/think-different/SKILL.md"],
+		skillPaths: [SKILL_PATH],
 	}));
 
 	// ------------------------------------------------------------ injection

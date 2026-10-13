@@ -120,12 +120,13 @@ Unit tests (no model, no network):
 node --test selftest.ts
 ```
 
-35 tests covering: registry integrity and alias uniqueness, marker/contract consistency for every
+36 tests covering: registry integrity and alias uniqueness, marker/contract consistency for every
 paradigm, prompt rendering and intensity layering (including the concrete-task line from
 `/think <paradigm> <task>`), `/think` argument parsing, auto-selection
 (including "trivial prompts get no paradigm"), score extraction, external pruning, and the workflow
 engine against a scripted fake model (step order, placeholder filling, prior-step threading, harness
-branch budgets per intensity, output caps, `only:` reruns, failure propagation).
+branch budgets per intensity, output caps, `only:` reruns, failure propagation), and the location of
+the bundled skill.
 
 Live end-to-end checks (real Pi runs, one model request each):
 

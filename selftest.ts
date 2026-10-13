@@ -9,7 +9,10 @@
  */
 
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { selectParadigm } from "./autoSelect.ts";
 import { listParadigms, PARADIGMS, resolveParadigm } from "./paradigms.ts";
@@ -100,6 +103,14 @@ test("resolve: ids, aliases, case, spacing, and CJK aliases", () => {
 });
 
 // ---------------------------------------------------------------- rendering
+
+test("skill: the bundled SKILL.md sits next to the extension, not next to the session cwd", () => {
+	// resources_discover resolves skill paths against the session cwd, so the bundled skill
+	// must be addressed from the extension's own directory.
+	const extensionDir = dirname(fileURLToPath(import.meta.url));
+	assert.ok(existsSync(join(extensionDir, "skills", "think-different", "SKILL.md")), "bundled skill missing");
+	assert.ok(!existsSync(join(process.cwd(), "skills", "think-different", "SKILL.md")) || extensionDir === process.cwd(), "skill resolves from the session cwd");
+});
 
 test("render: section carries the markers, the escape hatch, and the intensity", () => {
 	for (const paradigm of PARADIGMS) {
