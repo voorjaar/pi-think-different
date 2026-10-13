@@ -1,0 +1,17 @@
+{
+	"name": "pi-think-different",
+	"version": "0.2.0",
+	"description": "Switch the agent's thinking paradigm (CoT, ToT, GoT, self-critique, hypothesis & elimination, six thinking hats, debate, first principles, multi-angle) and run each paradigm as a real multi-pass workflow",
+	"type": "module",
+	"license": "MIT",
+	"pi": {
+		"extensions": ["./index.ts"]
+	},
+	"scripts": {
+		"test": "node --test selftest.ts",
+		"check": "node --test selftest.ts && node livecheck.mjs"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}
