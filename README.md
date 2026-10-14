@@ -38,7 +38,6 @@ Pi loads `src/index.ts` directly: no build step, no dependencies beyond Pi itsel
 /think deep                  raise the intensity of the current paradigm
 /think lang zh               menus, help, and status in Chinese (en to switch back)
 /think placement thinking    keep the structure in the thinking block, answer only the conclusion
-/think config                show which config files are in play and their values
 /think off                   back to default Pi reasoning
 ```
 
@@ -121,15 +120,16 @@ Copy `examples/config.example.jsonc` to `config.json` in the extension folder (n
 | `answer` | the branches, scores, criticisms, hats |
 | `thinking` (default) | only the conclusion; the structure stays in the thinking block |
 
-With `thinking`, the contract asks the model to keep the structure in its reasoning, and if it writes it into the answer anyway, the harness moves those sections into the thinking block.
+With `thinking`, the model writes the structure with its markers in the text it produces, and the harness moves those sections into the thinking block as bold labels - the answer keeps only the conclusion. That is deliberate: a request to keep the structure in private reasoning only is unverifiable, and in a real session a short-reasoning model answered a `once hats` turn with a single emoji.
 
 ## Development
 
 ```bash
-node --test tests/selftest.ts    # 91 unit tests: no model, no network
+node --test tests/selftest.ts    # 97 unit tests: no model, no network
 node tests/livecheck.mjs         # end-to-end against real Pi runs (18 cases)
 node tests/livecheck.mjs tot hats  # paradigm subset only
 node tests/livecheck.mjs options   # config startup, language, placement, prose /think
+node tests/livecheck.mjs startup:config  # one option case on its own
 npm test                         # unit tests
 npm run check                    # unit tests + live checks
 ```

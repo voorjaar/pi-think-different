@@ -44,7 +44,7 @@ import { DEFAULT_CONFIG, configLayerPaths, mergeConfigs, parseConfigText, resolv
 import { extractStructure, markerTokens, naturalizeMarkers, placeStructureBeforeAnswer, stripMarkerDebris, unwrapAnswerBlocks, type PlacementBlock } from "./placement.ts";
 import { listParadigms, resolveParadigm, type Intensity, type Paradigm, type ParadigmStep } from "./paradigms.ts";
 import { intensityFor, parseThinkArgs, renderSection, renderScaffoldForTask, renderTurnReminder, SECTION_TAG } from "./render.ts";
-import { autoSelectionMessage, autoSelectionSkippedMessage, ambiguousCueMessage, completionItems, configPathsMessage, configProblemMessage, cueResolvedMessage, describeState, helpLines, paradigmName, randomSelectionMessage, renderList, statusLabel, t, unknownParadigmMessage } from "./ui.ts";
+import { autoSelectionMessage, autoSelectionSkippedMessage, ambiguousCueMessage, completionItems, configProblemMessage, cueResolvedMessage, describeState, helpLines, paradigmName, randomSelectionMessage, renderList, statusLabel, t, unknownParadigmMessage } from "./ui.ts";
 import { renderWorkflowResult, runWorkflow, type ModelCallResult } from "./workflow.ts";
 
 const ENTRY_TYPE = "think-different";
@@ -277,6 +277,11 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 	// ------------------------------------------------------------ injection
 
 	pi.on("before_agent_start", async (event, ctx) => {
+		// A turn with no contract must not inherit the previous paradigm's rendering rules. `injectedParadigm`
+		// is what `message_end` keys on, and after `/think off` or a consumed `once` it used to keep stripping
+		// the old paradigm's marker tokens out of an ordinary answer - including out of a code block quoting them.
+		injectedParadigm = undefined;
+
 		if (state.mode === "off") return;
 
 		const prompt = event.messageType === "user" ? event.prompt : "";
@@ -459,13 +464,6 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 					return;
 				case "list":
 					ctx.ui.notify(renderList(state.language), "info");
-					return;
-				case "config":
-					ctx.ui.notify(configPathsMessage(state.language, configLayers(process.cwd())), "info");
-					ctx.ui.notify(describe(), "info");
-					if (configProblems.length > 0) {
-						for (const problem of configProblems) ctx.ui.notify(configProblemMessage(state.language, problem.file, problem.problem), "warning");
-					}
 					return;
 				case "language":
 					if (!parsed.language) {

@@ -68,8 +68,11 @@ const OPTION_CASES = [
 		rpc: [{ id: "cmd-1", type: "prompt", message: "/think 以六顶思考帽的方式思考俄乌战争的结果" }],
 	},
 	{
+		// The same prompt as startup:agent but with hats: seven markers and six sections, so it needs the budget
+		// its sibling already has instead of the 420s default.
 		paradigm: "startup:config",
 		config: { startup: "hats" },
+		timeoutMs: 900_000,
 		prompt: "Should a 12-person engineering team adopt a strict no-meetings Wednesday? Decide after thinking it through.",
 	},
 	{
@@ -566,10 +569,13 @@ async function main() {
 	const wantOptions = requested.includes("options");
 	const wanted = requested.filter((name) => name !== "tool" && name !== "options");
 	const cases = requested.length === 0 ? LIVE_CASES : LIVE_CASES.filter((entry) => wanted.includes(entry.paradigm));
-	const optionCases = requested.length === 0 || wantOptions ? OPTION_CASES : [];
+	// An option case can be named directly too, so a slow one can be re-run on its own.
+	const optionCases =
+		requested.length === 0 || wantOptions ? OPTION_CASES : wanted.length > 0 ? OPTION_CASES.filter((entry) => wanted.includes(entry.paradigm)) : [];
 
 	if (cases.length === 0 && optionCases.length === 0 && !wantTool) {
-		console.error(`No such paradigm. Known: ${LIVE_CASES.map((entry) => entry.paradigm).join(", ")} | options | tool`);
+		const known = [...LIVE_CASES, ...OPTION_CASES].map((entry) => entry.paradigm).join(", ");
+		console.error(`No such case. Known: ${known} | options | tool`);
 		process.exit(2);
 	}
 

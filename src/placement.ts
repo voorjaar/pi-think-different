@@ -124,7 +124,8 @@ function sectionStops(specs: SectionSpec[]): string[] {
  * Locate one section starting at or after `from`.
  *
  * A closed `<tag> ... </tag>` pair is the normal case. An unclosed tag - which is what a six-section
- * paradigm like hats actually produces - ends at the next section token instead.
+ * paradigm like hats actually produces - ends at the next section token, or at the next blank line for a
+ * bare-token section: a hat is one block, not the rest of the answer.
  */
 function findSectionSpan(text: string, spec: SectionSpec, stops: string[], from: number): { start: number; end: number } | undefined {
 	const tokenAt = text.indexOf(spec.open, from);
@@ -148,9 +149,22 @@ function findSectionSpan(text: string, spec: SectionSpec, stops: string[], from:
 		if (at >= 0 && at < end) end = at;
 	}
 
-	// Back off to the end of the previous line so the boundary never cuts mid-sentence.
-	const lastBreak = text.lastIndexOf("\n", end - 1);
-	if (lastBreak > tokenAt) end = lastBreak;
+	// A bare token - an emoji heading - opens a block, not the rest of the document. Without a blank-line
+	// boundary the last section swallows everything written after it, which is how a whole recipe ended up in
+	// the thinking block with one orphaned bullet left behind in the answer.
+	if (!spec.close) {
+		const after = tokenAt + spec.open.length;
+		const blank = text.slice(after).search(/\n[ \t]*\n/);
+		if (blank >= 0 && after + blank < end) end = after + blank;
+	}
+
+	// Back off to the end of the previous line, but only when a stop token really did land mid-line
+	// ("⚪ Facts: the ⚫ black hat ..."). Backing off from the end of the text is what used to drop the
+	// answer's final line out of its own section.
+	if (end < text.length && text[end - 1] !== "\n") {
+		const lastBreak = text.lastIndexOf("\n", end - 1);
+		if (lastBreak > tokenAt) end = lastBreak;
+	}
 
 	// ...unless the section was cut by a token on its own line ("🟡/🔵 Blue: control"). Cutting there would
 	// leave a word fragment behind and give the same hat a second heading, so the whole line is the section.
@@ -160,6 +174,25 @@ function findSectionSpan(text: string, spec: SectionSpec, stops: string[], from:
 	if (tokenAt === lineStart && end <= lineBoundary) end = lineBoundary;
 
 	return { start, end };
+}
+
+/**
+ * Drop every span that starts inside one already accepted, in start order.
+ *
+ * Comparing with the previous sorted span is not enough: an outer span can hold two inner ones, and the
+ * second inner span starts after the first inner span ends, so it survives. Cutting accepted spans from the
+ * back then slices the already-shortened string with stale offsets, which swallows the text after the outer
+ * span and leaves a word fragment in the answer.
+ */
+function dropNestedSpans<T extends { start: number; end: number }>(spans: T[]): T[] {
+	const ordered: T[] = [];
+	let coveredTo = -1;
+	for (const span of spans.slice().sort((a, b) => a.start - b.start)) {
+		if (span.start < coveredTo) continue;
+		ordered.push(span);
+		coveredTo = Math.max(coveredTo, span.end);
+	}
+	return ordered;
 }
 
 /**
@@ -186,10 +219,7 @@ export function extractStructure(text: string, paradigm: Paradigm, options: Extr
 	if (spans.length === 0) return { text, structure: undefined };
 
 	// Drop spans nested inside an earlier span, then cut from the back so offsets stay valid.
-	const ordered = spans
-		.slice()
-		.sort((a, b) => a.start - b.start)
-		.filter((span, index, all) => index === 0 || span.start >= all[index - 1].end);
+	const ordered = dropNestedSpans(spans);
 
 	const structureParts: string[] = [];
 	let remaining = text;
@@ -208,6 +238,50 @@ export function extractStructure(text: string, paradigm: Paradigm, options: Extr
 	if (answer.length === 0) return { text, structure: undefined };
 
 	return { text: answer, structure };
+}
+
+const LABEL_STOP_WORDS = new Set(["the", "a", "an", "of", "is", "are", "and", "or", "to", "for", "in", "on", "this", "that", "it", "we", "you", "with", "的", "了", "和", "与", "是"]);
+
+/** The meaningful words of a line, lightly stemmed, so "Tree of Thoughts" matches the heading "Thought tree". */
+function labelWords(value: string): string[] {
+	return value
+		.split(/\s+/)
+		.map((word) => word.replace(/[^\p{L}\p{N}_]/gu, ""))
+		.filter((word) => word.length > 2 && !LABEL_STOP_WORDS.has(word.toLowerCase()))
+		.map((word) => {
+			const lower = word.toLowerCase();
+			return lower.length > 4 ? lower.replace(/(ings|ing|es|s|ed)$/, "") : lower;
+		});
+}
+
+/**
+ * Whether a section's first line says nothing beyond the heading the harness is about to print.
+ *
+ * This is the only safe test for "the model already wrote the label": length is not. A 46-character sentence
+ * of body text used to be deleted as a label while a 51-character one survived, because the old test was
+ * "under 48 chars and no sentence punctuation" - and ASCII `.` was not even in that punctuation set.
+ */
+function isRedundantLabel(line: string, heading: string): boolean {
+	const flatten = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}_]+/gu, " ").replace(/\s+/g, " ").trim();
+	const headingText = flatten(heading);
+	const lineText = flatten(line);
+	if (lineText.length === 0) return true;
+	if (headingText.length === 0) return false;
+	if (lineText === headingText) return true;
+
+	// A Chinese label is a character run rather than whitespace-separated words, so the same containment
+	// test is done by character.
+	const cjk = /[\u3400-\u4DBF\u4E00-\u9FFF]/u;
+	if (cjk.test(lineText) && cjk.test(headingText)) {
+		const headingChars = new Set(headingText.replace(/\s+/g, ""));
+		const lineChars = [...new Set(lineText.replace(/\s+/g, ""))];
+		return lineChars.length > 0 && lineChars.every((char) => headingChars.has(char));
+	}
+
+	const headingWords = new Set(labelWords(headingText));
+	const words = labelWords(lineText);
+	if (words.length === 0) return true;
+	return words.every((word) => headingWords.has(word));
 }
 
 /**
@@ -250,10 +324,7 @@ export function naturalizeMarkers(text: string, paradigm: Paradigm, language: La
 
 	if (spans.length === 0) return stripMarkerDebris(out, paradigm.markers);
 
-	const ordered = spans
-		.slice()
-		.sort((a, b) => a.start - b.start)
-		.filter((span, index, all) => index === 0 || span.start >= all[index - 1].end);
+	const ordered = dropNestedSpans(spans);
 
 	for (const span of ordered.slice().reverse()) {
 		const body = out.slice(span.start, span.end);
@@ -267,12 +338,11 @@ export function naturalizeMarkers(text: string, paradigm: Paradigm, language: La
 		const closePattern = isTag ? new RegExp(`\\s*${escapeRegExp(span.open.replace(/^</, "</"))}$`) : undefined;
 		const stripped = (closePattern ? body.replace(closePattern, "") : body).replace(leadingTokens, "").trim();
 
-		// The first line of a section is either a label - "### ⚫ Black Hat", "白帽：事实与数据" - which the
-		// rendered heading already says, or the section's actual text, which must survive.
+		// The first line of a section is either the section's own label - "### ⚫ Black Hat", "白帽：事实与数据" -
+		// which the rendered heading already says, or the section's actual text, which must survive.
 		const firstBreak = stripped.indexOf("\n");
 		const firstLine = firstBreak >= 0 ? stripped.slice(0, firstBreak) : stripped;
 		const restOfLine = firstLine.replace(/^[ \t]*#{0,6}[ \t]*/u, "").replace(/^[ \t:：\-–—/|·、,]+/u, "").trim();
-		const labelOnly = restOfLine.length === 0 || (!/[。！？!?;，,]/.test(firstLine) && restOfLine.length <= 48);
 		// A kept line can still open with the model's own label ("Black: risk - ..."); the rendered heading
 		// already names the section, so the label prefix goes too.
 		const labelPrefix = new RegExp("^[ \\t]*[\\p{L}\\p{N}_]+[ \\t]*[:：][ \\t]*", "u");
@@ -280,6 +350,8 @@ export function naturalizeMarkers(text: string, paradigm: Paradigm, language: La
 		const dashAt = afterColon.search(/\s[-–—]\s/u);
 		const withoutLabel = (dashAt > 0 && dashAt <= 32 ? afterColon.slice(dashAt + 1) : afterColon).replace(/^[ \t]*[-–—][ \t]*/u, "").trim();
 		const keptLine = withoutLabel.trim().length > 0 ? withoutLabel.trim() : restOfLine;
+		// A label line with nothing under it is the whole section, so it stays - dropping it would empty it.
+		const labelOnly = restOfLine.length === 0 || (firstBreak >= 0 && isRedundantLabel(keptLine, heading));
 		let inner = labelOnly ? stripped.slice(firstBreak + 1).trim() : `${keptLine}${firstBreak >= 0 ? stripped.slice(firstBreak) : ""}`.trim();
 
 		// A section that opened with its own Markdown heading line would otherwise render as `### ### …`.
@@ -401,11 +473,13 @@ export function placeStructureBeforeAnswer<T extends PlacementBlock>(content: T[
 export function placementClause(placement: Placement, paradigm: Paradigm): string {
 	if (placement === "thinking") {
 		return (
-			"Placement: run this paradigm's structure inside your reasoning / thinking block, and let the visible answer carry only the conclusion. " +
-			`The structure must still use its markers verbatim (${paradigm.markers.join(", ")}) inside your thinking, because that is what proves the paradigm ran. ` +
-			"The visible answer must contain none of those marker tokens - not as tags, not as closing tags, not as the bare words alone on a line, not as headings. " +
-			"If the answer needs sections, name them in natural language in the language the user wrote in (for example \"对手视角\", \"务实视角\", \"结论\"), never with a marker token. " +
-			"Do not restate the branches, scores, or critiques in the answer text, and do not wrap the conclusion in <answer> tags - the answer is already the answer."
+			"Placement: write this paradigm's sections with their markers verbatim " +
+			`(${paradigm.markers.join(", ")}) in the text you produce for this reply - the harness moves that structure out of the visible answer and into the thinking block, so the user reads only the conclusion. ` +
+			"Running the paradigm in private reasoning only is not enough: a reasoning block that never spells the markers cannot be verified and cannot be moved. " +
+			"Naming the paradigm, or writing one marker with nothing under it, is not running it. " +
+			"The conclusion you leave in the answer must contain none of those marker tokens - not as tags, not as closing tags, not as the bare words alone on a line, not as headings. " +
+			"If the conclusion needs sections, name them in natural language in the language the user wrote in (for example \"对手视角\", \"务实视角\", \"结论\"), never with a marker token. " +
+			"Do not restate the branches, scores, or critiques in the conclusion, and do not wrap the conclusion in <answer> tags - the answer is already the answer."
 		);
 	}
 	return (

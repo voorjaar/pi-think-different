@@ -126,7 +126,6 @@ export function helpLines(lang: Language): string[] {
 		t(lang, "/think light|standard|deep   change intensity", "/think light|standard|deep   调整强度"),
 		t(lang, "/think placement answer|thinking  where the structure is shown", "/think placement answer|thinking  结构显示在哪里"),
 		t(lang, "/think lang en|zh            menu language", "/think lang en|zh            菜单语言"),
-		t(lang, "/think config                config files and current values", "/think config                配置文件与当前取值"),
 		t(lang, "/think off                   default Pi reasoning", "/think off                   关闭，回到 Pi 默认推理"),
 		"",
 		t(
@@ -193,7 +192,6 @@ export function completionItems(lang: Language, argumentPrefix: string): ThinkCo
 		["deep", "intensity: fullest structure", "强度：深度"],
 		["lang", "set the interface language", "设置界面语言"],
 		["placement", "set where the structure appears", "设置结构出现的位置"],
-		["config", "show config file locations", "查看配置文件位置"],
 		["help", "show help", "查看帮助"],
 	];
 
@@ -249,21 +247,6 @@ export function autoSelectionSkippedMessage(lang: Language, score: number, reaso
 		(reasons.length > 0 ? ` (${reasons.slice(0, 3).join("; ")})` : "") +
 		t(lang, " - use /think <paradigm> to force one", " - 可用 /think <范式> 强制指定")
 	);
-}
-
-const CONFIG_LAYER_LABEL: Record<"extension" | "agent" | "project", [string, string]> = {
-	extension: ["extension", "扩展级"],
-	agent: ["agent (all projects)", "全局（所有项目）"],
-	project: ["project", "项目级"],
-};
-
-export function configPathsMessage(lang: Language, layers: { kind: "extension" | "agent" | "project"; path: string }[]): string {
-	const localizedSlot = lang === "zh" ? 1 : 0;
-	return [
-		t(lang, "config files (later wins):", "配置文件（后者覆盖前者）："),
-		...layers.map((layer) => `  ${CONFIG_LAYER_LABEL[layer.kind][localizedSlot].padEnd(22)} ${layer.path}`),
-		`  ${t(lang, "then --think, then /think in this session", "再是 --think，再是会话里的 /think")}`,
-	].join("\n");
 }
 
 export function configProblemMessage(lang: Language, file: string, problem: string): string {

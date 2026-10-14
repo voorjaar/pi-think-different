@@ -143,7 +143,7 @@ test("render: the per-turn reminder names the paradigm and announces a switch", 
 
 	const switched = renderTurnReminder(debate, "thinking", "tot");
 	assert.ok(switched.includes("It replaced tot"), switched);
-	assert.ok(switched.includes("inside your thinking block"), switched);
+	assert.ok(switched.includes("moves it into your thinking block"), switched);
 	assert.ok(switched.includes("finished"), "the old paradigm must be declared finished");
 
 	// The contract itself forbids continuing an earlier paradigm.
@@ -154,10 +154,21 @@ test("render: the per-turn reminder names the paradigm and announces a switch", 
 test("render: placement thinking moves the structure out of the answer", () => {
 	const paradigm = resolveParadigm("tot")!;
 	const section = renderSection(paradigm, "standard", "thinking", "session");
-	assert.ok(section.includes("run this paradigm's structure inside your reasoning"), "thinking placement clause missing");
+	// The enforceable path is the answer: the model writes the markers there and the harness relocates them.
+	// Asking for a thinking-block-only structure is what let a short-reasoning model answer with one emoji.
+	assert.ok(section.includes("the harness moves that structure out of the visible answer"), "thinking placement clause missing");
 	assert.ok(!section.includes("Emit the structure in your visible answer"), "answer placement clause leaked into thinking placement");
 	assert.ok(section.includes("Required markers, verbatim"), "thinking placement must still require markers");
 	assert.ok(placementClause("answer", paradigm).includes("visible answer"), "answer placement clause missing");
+});
+
+test("render: private reasoning alone does not count as running the paradigm", () => {
+	const clause = placementClause("thinking", resolveParadigm("hats")!);
+	assert.ok(clause.includes("private reasoning only is not enough"), clause);
+	assert.ok(clause.includes("one marker with nothing under it"), "the clause must reject a single emoji as compliance");
+	const section = renderSection(resolveParadigm("hats")!, "standard", "thinking", "session");
+	assert.ok(section.includes("Writing the sections is what running the paradigm means"), section.slice(-600));
+	assert.ok(renderTurnReminder(resolveParadigm("hats")!, "thinking").includes("spelled out in the text you produce"));
 });
 
 test("render: a concrete task from /think is injected for the turn", () => {
@@ -253,6 +264,40 @@ test("parse: /think argument shapes", () => {
 	assert.equal(parseThinkArgs("once hats deep adopt no-meeting wednesday").task, "adopt no-meeting wednesday");
 	assert.equal(parseThinkArgs("tot deep").task, undefined);
 	assert.equal(parseThinkArgs("tot deep").intensity, "deep");
+});
+
+test("parse: command keywords count only as the first token", () => {
+	// "config", "status", "list", "off", and "auto" are ordinary words in a developer's task text. They
+	// used to hijack the command wherever they appeared, so `/think hats off the record on pricing` turned
+	// the paradigm off instead of pinning hats and thinking about the task.
+	const cases: Array<[string, string, string]> = [
+		["hats off the record on pricing", "hats", "off the record on pricing"],
+		["debate config drift in prod", "debate", "config drift in prod"],
+		["angles list the risks of the plan", "angles", "list the risks of the plan"],
+		["cot status report for the migration", "cot", "status report for the migration"],
+		["first-principles auto scaling limits", "first-principles", "auto scaling limits"],
+	];
+	for (const [raw, id, task] of cases) {
+		const parsed = parseThinkArgs(raw);
+		assert.equal(parsed.action, "set", `${raw}: became a ${parsed.action} sub-command`);
+		assert.equal(parsed.paradigm?.id, id, `${raw}: paradigm not pinned`);
+		assert.equal(parsed.task, task, `${raw}: task text lost`);
+	}
+
+	// A keyword at the head is still a sub-command.
+	assert.equal(parseThinkArgs("lang zh").action, "language");
+	assert.equal(parseThinkArgs("lang zh").language, "zh");
+	assert.equal(parseThinkArgs("placement thinking").action, "placement");
+	assert.equal(parseThinkArgs("once hats deep adopt no-meeting wednesday").action, "once");
+
+	// `/think config` was removed: a bare unknown word is reported as an unknown paradigm rather than a
+	// sub-command, and nothing in the picker or the help offers it any more.
+	const bare = parseThinkArgs("config");
+	assert.equal(bare.action, "set");
+	assert.equal(bare.unknown, "config");
+	assert.equal(helpLines("en").some((line) => line.includes("/think config")), false, "help still advertises /think config");
+	assert.equal(helpLines("zh").some((line) => line.includes("/think config")), false, "zh help still advertises /think config");
+	assert.equal(completionItems("en", "c").some((item) => item.value === "config"), false, "picker still offers config");
 });
 
 // ---------------------------------------------------------------- auto selection
@@ -799,6 +844,98 @@ test("placement: unwrapAnswerBlocks handles text with no answer tags", () => {
 	assert.equal(unwrapAnswerBlocks("<answer>\nShip it.\n</answer>"), "Ship it.");
 });
 
+test("placement: a short first line of body text is not treated as a label", () => {
+	// The old test was "under 48 chars and no sentence punctuation", and ASCII `.` was missing from that
+	// punctuation set, so length alone decided - and a 46-character sentence of real content disappeared
+	// from the answer while a 51-character one survived.
+	const tot = resolveParadigm("tot")!;
+	const branch = [
+		"<thought_tree>",
+		"[Branch_A] cron plus a lock file",
+		"Score: 8/10",
+		"</thought_tree>",
+	].join("\n");
+	const rendered = naturalizeMarkers(branch, tot, "en");
+	assert.ok(rendered.includes("[Branch_A] cron plus a lock file"), "the branch label line was deleted");
+	assert.ok(rendered.includes("Score: 8/10"), "the score line was deleted");
+
+	const angles = resolveParadigm("angles")!;
+	const sentence = "<angle:system>\nThe scheduler is the only writer of the queue.\nTwo hosts can disagree.\n</angle:system>";
+	assert.ok(
+		naturalizeMarkers(sentence, angles, "en").includes("The scheduler is the only writer of the queue."),
+		"a 46-character sentence was deleted as a label",
+	);
+});
+
+test("placement: a label line the model wrote is still replaced, not duplicated", () => {
+	const tot = resolveParadigm("tot")!;
+	const en = naturalizeMarkers("<thought_tree>\n### Tree of Thoughts\nBranch A. Score: 8/10\n</thought_tree>", tot, "en");
+	assert.ok(en.includes("**Thought tree**"), "no rendered heading");
+	assert.ok(!en.includes("Tree of Thoughts"), "the model's own label line survived next to the heading");
+	assert.ok(en.includes("Branch A. Score: 8/10"), "body content lost");
+
+	const zh = naturalizeMarkers("<thought_tree>\n思维树\n分支 A：8/10\n</thought_tree>", tot, "zh");
+	assert.ok(zh.includes("**思维树**"), "no rendered Chinese heading");
+	assert.ok(!zh.includes("\n思维树\n"), "the model's own Chinese label line survived");
+	assert.ok(zh.includes("分支 A：8/10"), "body content lost");
+
+	// A section whose whole body is one line keeps that line: there is nothing else to show.
+	const critique = resolveParadigm("critique")!;
+	assert.ok(
+		naturalizeMarkers("<criticism>\nRace condition in the retry path\n</criticism>", critique, "en").includes("Race condition in the retry path"),
+		"a single-line section was emptied",
+	);
+});
+
+test("placement: a conclusion after the last hat stays in the answer", () => {
+	// Real shape from a user session: the model wrote all six hats into the visible answer, then the recipe.
+	// The last hat's span used to run to the end of the text minus its final line, so the whole recipe moved
+	// to thinking and the answer was left holding one orphaned bullet.
+	const hats = resolveParadigm("hats")!;
+	const answer = [
+		"⚪ 事实：番茄炒蛋是 10 分钟量级的家常菜，变量只有几个。",
+		"🔴 直觉：用户今晚就要做，需要能照着执行的步骤。",
+		"🟡 价值：说清为什么这样做，比只给步骤更有用。",
+		"🟢 优化：蛋液加一点水、热锅宽油快炒、番茄炒到出汁再合蛋。",
+		"🔵 结构：材料 → 做法 → 判断点 → 常见失败。",
+		"⚫ 风险：鸡蛋炒老、番茄出水太多变汤、过酸。",
+		"",
+		"## 常见失败与修法",
+		"- 蛋老、像橡皮 → 火太小或炒太久。",
+		"- 偏淡 → 盐分两次放，比只放一次更入味。",
+	].join("\n");
+
+	const relocated = extractStructure(answer, hats, { unwrapAnswer: true });
+	const structure = relocated.structure ?? "";
+	assert.ok(structure.includes("⚪ 事实"), "the white hat was not extracted");
+	assert.ok(structure.includes("⚫ 风险"), "the black hat was not extracted");
+	assert.ok(!structure.includes("## 常见失败与修法"), "the conclusion was swallowed into the thinking block");
+	assert.ok(relocated.text.includes("## 常见失败与修法"), "the conclusion left the answer");
+	assert.ok(relocated.text.includes("- 偏淡 → 盐分两次放，比只放一次更入味。"), "the final line was orphaned out of its own block");
+});
+
+test("placement: nested spans do not corrupt the surrounding prose", () => {
+	// An outer span holding two inner ones: the second inner span used to survive the dedup, and cutting
+	// accepted spans from the back then sliced the already-shortened string with stale offsets.
+	const critique = resolveParadigm("critique")!;
+	const answer = [
+		"Intro prose that must survive.",
+		"<draft>",
+		"A line",
+		"<criticism>x</criticism>",
+		"B line",
+		"<refinement>y</refinement>",
+		"C line",
+		"</draft>",
+		"Closing prose that must survive.",
+	].join("\n");
+	const relocated = extractStructure(answer, critique, { unwrapAnswer: true });
+	assert.ok((relocated.structure ?? "").includes("C line"), "the outer span was cut short");
+	assert.ok(relocated.text.includes("Intro prose that must survive."), "the opening prose was damaged");
+	assert.ok(relocated.text.includes("Closing prose that must survive."), "the closing prose was swallowed");
+	assert.ok(!relocated.text.includes("\nurvive"), "a word fragment was left in the answer");
+});
+
 test("placement: relocated structure lands in the thinking before the answer, never after", () => {
 	const content: PlacementBlock[] = [
 		{ type: "thinking", thinking: "model's own reasoning" },
@@ -1098,7 +1235,7 @@ test("placement: an answer that is only structure is never emptied", () => {
 	assert.ok(relocated.text.trim().length > 0, "answer was emptied");
 });
 
-test("placement: parseThinkArgs takes lang, placement, and config", () => {
+test("placement: parseThinkArgs takes lang and placement", () => {
 	const zh = parseThinkArgs("lang zh");
 	assert.equal(zh.action, "language");
 	assert.equal(zh.language, "zh");
@@ -1111,7 +1248,6 @@ test("placement: parseThinkArgs takes lang, placement, and config", () => {
 	const placed = parseThinkArgs("placement thinking");
 	assert.equal(placed.action, "placement");
 	assert.equal(placed.placement, "thinking");
-	assert.equal(parseThinkArgs("config").action, "config");
 });
 
 // ---------------------------------------------------------------- natural language /think

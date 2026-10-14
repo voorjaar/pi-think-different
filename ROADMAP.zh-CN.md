@@ -34,7 +34,7 @@
 
 已发布的强制要求：范式开启期间每个回答都使用它——包括琐碎的那些——这条写在契约与 skill 里，而不是靠重答循环去执法。
 
-已发布的测试覆盖：纯逻辑模块上 91 个单元测试，以及 18 条实跑用例（9 个范式、`think` 工具的 run 模式，加上 8 条选项用例：语言、自然语言 `/think`、项目配置里的 `startup`、全局配置层里的 `startup`、`thinking` 放置、`random` 切换、琐碎提示词的强制）。实跑用例都在临时目录里运行，因此真实用户自己的配置层不会改变判定结果。
+已发布的测试覆盖：纯逻辑模块上 97 个单元测试，以及 18 条实跑用例（9 个范式、`think` 工具的 run 模式，加上 8 条选项用例：语言、自然语言 `/think`、项目配置里的 `startup`、全局配置层里的 `startup`、`thinking` 放置、`random` 切换、琐碎提示词的强制）。实跑用例都在临时目录里运行，因此真实用户自己的配置层不会改变判定结果。
 
 ## 「算不算正常工作」的定义
 
@@ -86,11 +86,11 @@
 - 不是为某一个模型调提示词。契约是为了在较弱的模型上也能成立而写的，这正是剪枝留在代码里的原因。
 - 不是可自选样式的渲染器。标签就是当前会话语言的加粗文本，`hats` 原样显示。这件事已经定案，不再作为一个偏好暴露出来。
 
-## 用纯函数探针发现的开放 bug（2026-10-14）
+## 用纯函数探针发现的 bug（2026-10-14）
 
-这些不是跑 Pi 发现的，而是拿真实的模型输出形状去驱动纯模块发现的。每一个在正常使用里都会发生，而 91 个单元测试一个都没覆盖到——所以在这里「单测全绿」不等于正确。刻意只报告不修：每一个修法都会改变可见行为，需要各自的决定加一条回归测试。
+这些不是跑 Pi 发现的，而是拿真实的模型输出形状去驱动纯模块发现的。每一个在正常使用里都会发生，而当时单元测试一个都没覆盖到——所以在这里「单测全绿」不等于正确。**1 到 7 已修**，每个都有一条以症状命名的回归测试；**8 和 9 仍然开放**，等各自的决定。
 
-**1. 任务里的词劫持了 `/think` 命令。** `src/render.ts` 的 `parseThinkArgs` 在任何位置都接受 `help | list | status | off | auto | random | once | config | lang | placement` 作为子命令，即使前面已经出现过范式 token。关键词赢，范式根本没生效，而且会话状态会被顺手改掉：
+**1. 任务里的词劫持了 `/think` 命令。** *已修* `src/render.ts` 的 `parseThinkArgs` 在任何位置都接受 `help | list | status | off | auto | random | once | config | lang | placement` 作为子命令，即使前面已经出现过范式 token。关键词赢，范式根本没生效，而且会话状态会被顺手改掉：
 
 ```text
 /think hats off the record on pricing        -> action=off      the paradigm is turned off
@@ -100,9 +100,9 @@
 /think first-principles auto scaling limits  -> action=auto     switches to auto mode
 ```
 
-修法方向：命令关键词只认 token 索引 0。`lang zh`、`placement thinking`、`auto deep`、`once hats deep` 全部照常工作；现有测试没有任何一条依赖关键词出现在后面的位置。强度 token 是同一个问题的较轻版本（`/think cot deep dive into the parser` 会静默吃掉 "deep"），而且通常无害，因为那种读法往往正是用户想要的。
+已修：命令关键词只认 token 索引 0。`lang zh`、`placement thinking`、`auto deep`、`once hats deep` 全部照常工作；测试里没有任何一条依赖关键词出现在后面的位置。强度 token 是同一个问题的较轻版本（`/think cot deep dive into the parser` 会静默吃掉 "deep"），保留原样，因为那种读法往往正是用户想要的。测试：`parse: command keywords count only as the first token`。
 
-**2. `placement: "answer"` 会删掉小节的第一行。** `src/placement.ts` 里 `naturalizeMarkers` 的 `labelOnly` 判据是：小节首行不足 48 字符、且不含 `。！？!?;，,` 中的任何一个，就认定它是冗余标签并删除——而 ASCII 的 `.` 不在那个集合里，所以真正起作用的判据只剩长度。于是一段正文会从用户阅读的答案里消失：
+**2. `placement: "answer"` 会删掉小节的第一行。** *已修* `src/placement.ts` 里 `naturalizeMarkers` 的 `labelOnly` 判据是：小节首行不足 48 字符、且不含 `。！？!?;，,` 中的任何一个，就认定它是冗余标签并删除——而 ASCII 的 `.` 不在那个集合里，所以真正起作用的判据只剩长度。于是一段正文会从用户阅读的答案里消失：
 
 ```text
 <thought_tree>
@@ -116,9 +116,9 @@ Two hosts means two clocks that can disagree.    <- 51 chars: kept
 </angle:system>
 ```
 
-修法方向：丢掉长度启发式。只有当首行确实是标签时才删——`#{1,6}` 标题、显式的 `Black: risk - …` 前缀（已经处理过）、或者与即将打印的标题本身冗余的文本。
+已修：长度启发式去掉了。只有首行确实是标签时才删——`#{1,6}` 标题、显式的 `Black: risk - …` 前缀（本来就处理过）、或者有效词全部已经出现在即将打印的标题里的文本（轻度词干归一，中文走按字符包含的变体）。标签行下面没有正文时保留，删了小节就空了。测试：`placement: a short first line of body text is not treated as a label`、`placement: a label line the model wrote is still replaced, not duplicated`。
 
-**3. `placement: "thinking"` 在小节嵌套时把文本切碎。** `extractStructure` 的去重只把每个 span 和前一个排序后的 span 比，而不是和「目前最大的 end」比，于是外层 span 里的**第二个**嵌套 span 被保留。再从后往前切时，前面 span 的偏移在已经变短的字符串上失效：
+**3. `placement: "thinking"` 在小节嵌套时把文本切碎。** *已修* `extractStructure` 的去重只把每个 span 和前一个排序后的 span 比，而不是和「目前最大的 end」比，于是外层 span 里的**第二个**嵌套 span 被保留。再从后往前切时，前面 span 的偏移在已经变短的字符串上失效：
 
 ```text
 input:  Intro prose that must survive. / <draft> ... <criticism>x</criticism> ... <refinement>y</refinement> ... </draft> / Closing prose that must survive.
@@ -126,13 +126,23 @@ structure: <draft> ... Closing prose that must s      <- prose swallowed into th
 answer:    Intro prose that must survive. / urvive.   <- word fragment left behind
 ```
 
-同一机制在 hats 上更常见：一顶帽子的正文里提到另一顶帽子的 emoji（`⚪ Facts: the ⚫ black hat is the one people skip`）时，小节会从中间被劈开，正文第二行留在可见答案里，其余搬进思考块。修法方向：与目前最大的结束偏移比较，`extractStructure` 和 `naturalizeMarkers` 里同一处 filter 一起改。
+同一机制在 hats 上更常见：一顶帽子的正文里提到另一顶帽子的 emoji（`⚪ Facts: the ⚫ black hat is the one people skip`）时，小节会从中间被劈开，正文第二行留在可见答案里，其余搬进思考块。已修：`dropNestedSpans` 与目前最大的结束偏移比较，`extractStructure` 和 `naturalizeMarkers` 里同一处 filter 一起改；hats 正文提到另一顶帽子时，提取现在会直接放弃而不是留下半截小节。测试：`placement: nested spans do not corrupt the surrounding prose`。
 
-**4. `injectedParadigm` 从不清空。** `src/index.ts` 只在 `before_agent_start` 里赋值，没有任何地方重置。所以 `/think off` 之后——或者 `/think once <paradigm>` 用完之后——下一轮并没有注入契约，但 `message_end` 仍然按那个旧范式的 placement 和残迹清理规则处理一个普通回答。`cot` 是最糟的情况：`<answer>` 和 `<reasoning>` 会从普通正文里被剥掉，包括引用它们的代码块。
+**4. `injectedParadigm` 从不清空。** *已修* `src/index.ts` 只在 `before_agent_start` 里赋值，没有任何地方重置。所以 `/think off` 之后——或者 `/think once <paradigm>` 用完之后——下一轮并没有注入契约，但 `message_end` 仍然按那个旧范式的 placement 和残迹清理规则处理一个普通回答。`cot` 是最糟的情况：`<answer>` 和 `<reasoning>` 会从普通正文里被剥掉，包括引用它们的代码块。已修：`before_agent_start` 在决定之前先把 `injectedParadigm` 清空，所以没有契约的那一轮也不会被渲染。这一条靠手测而不是单元测试验证——它住在 Pi 接线里。
 
-**5. run 模式的分数解析太松。** `extractScores` 接受任意一行上的 `n/10`，所以正文里出现「8/10 timeouts」或一个日期就会造出一个假候选，gate 注记接着告诉下一步「Build only on: item-1 (8/10)」。反过来，一行只写方括号标签、后面跟多条 `Score: n/10` 时只会产出一条记录（label 会去重），后面的分数被静默忽略。
+**5. `placement: "thinking"` 连结论一起搬走。** *已修* 这一条不是探针发现的，而是读 `~/.pi/agent/sessions` 下的真实会话记录发现的：模型把六顶帽**和**菜谱一起写进了可见答案，而用户最后看到的只有一行——`- 偏淡 → 盐分两次放（蛋液里一点、番茄里一点），比只放一次更入味。` `findSectionSpan` 给未闭合的裸标记小节（emoji 帽子没有闭合标签）没有终点，于是黑帽的跨度一直跑到全文末尾，再恰好退回一行：从 `⚫ 风险` 到最后一个项目符号全部搬进思考块，只剩下最后那一行。
 
-**6. 两处上报上的装饰性问题。** `think` 工具把 `cost` 报成全 0，而它的 token 累加是真实的；`paradigms.ts` 里有一个步骤模板已经含 `{{limits}}`，所以 `runWorkflow` 会为那个步骤把 harness 预算行打印两次。
+已修：裸标记小节同时在下一个空行处结束——一顶帽是一个块，不是剩下的整篇——而且「退回上一行」只在停止标记真的落在行中间时才执行，最后一行不再被赶出自己的小节。把那次会话自己的文本重放进 `extractStructure` 后，答案里保住 863 字符的菜谱，思考块里搬进去 343 字符的帽子。测试：`placement: a conclusion after the last hat stays in the answer`。
+
+**6. `/think config` 在交互模式下没有任何输出。** *已修——命令删掉了* 它连着调了两次 `ctx.ui.notify(…, "info")`：先 `configPathsMessage(...)`，再 `describe()`。Pi 交互模式的状态渲染不会追加第二行：`showStatus` 发现聊天区最后两个子元素正好是上一次的 `lastStatusText` 和它的 spacer 时，就复用那个组件，于是第二次调用把第一次覆盖了，屏幕上只剩熟悉的 `思考范式：…` 那一行。RPC 模式把每个 notify 当成独立的 `extension_ui_request` 记录发出来，两条都在，所以测试罩里看起来一切正常。已修：子命令、帮助行、补全项全部删除；`/think config` 现在按未知词处理，报出来并附范式清单。
+
+**7. `placement: "thinking"` 在推理预算短的那一轮直接蒸发。** *已修* 来自用户的会话记录：`/think once hats` + 「如何做番茄炒蛋」。契约完整送到了模型——会话记录里完整的 `thinking_paradigm` 段落和本轮提醒都在——而模型只写了 211 字符的推理：先说自己在用六顶帽，然后打了一个 `🟢` 就正常作答。没有任何机制能拦住：`message_end` 只能把模型写在**答案**里的结构搬走，一个没有标记的思考块对它完全不可见，所以 `thinking` 是唯一一个根本没有执行路径的 placement。
+
+已修：thinking 的 placement 子句现在走那条可验证的路——把带标记的小节写在你产出的正文里，harness 再搬进思考区并渲染成加粗标题——而且直接写清楚：只在私有推理里存在「无法验证也无法搬走」，「只说出范式名字、或者写一个下面没有内容的标记，不算跑了范式」。`MANDATE_CLAUSE` 里加了同一句。测试：`render: private reasoning alone does not count as running the paradigm`、`render: placement thinking moves the structure out of the answer`。
+
+**8. run 模式的分数解析太松。** `extractScores` 接受任意一行上的 `n/10`，所以正文里出现「8/10 timeouts」或一个日期就会造出一个假候选，gate 注记接着告诉下一步「Build only on: item-1 (8/10)」。反过来，一行只写方括号标签、后面跟多条 `Score: n/10` 时只会产出一条记录（label 会去重），后面的分数被静默忽略。
+
+**9. 两处上报上的装饰性问题。** `think` 工具把 `cost` 报成全 0，而它的 token 累加是真实的；`paradigms.ts` 里有一个步骤模板已经含 `{{limits}}`，所以 `runWorkflow` 会为那个步骤把 harness 预算行打印两次。
 
 ## 已知的粗糙处
 

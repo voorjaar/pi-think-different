@@ -38,7 +38,7 @@ extension is loaded by Pi as TypeScript directly; there is no build step and no 
 ```text
 src/              index.ts (all Pi wiring) + the pure modules
                   paradigms render nlmatch autoSelect config ui placement workflow
-tests/            selftest.ts (unit) · livecheck.mjs (real Pi runs) · run-livecheck.sh
+tests/            selftest.ts (unit) · livecheck.mjs (real Pi runs)
 examples/         config.example.jsonc · agent-config.example.jsonc · headless.sh
 skills/           think-different/SKILL.md (bundled, discovered through resources_discover)
 assets/           preview.png - the gallery image, referenced by both READMEs and by pi.image through its
@@ -78,7 +78,7 @@ scripted fake model.
 ## Testing
 
 ```bash
-node --test tests/selftest.ts   # 91 tests, no model, no network, milliseconds - run after every change
+node --test tests/selftest.ts   # 97 tests, no model, no network, milliseconds - run after every change
 node tests/livecheck.mjs        # 18 real Pi sessions, 15-30 minutes - run only after the user has tested
 
 npm test                        # the unit suite

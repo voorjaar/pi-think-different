@@ -38,7 +38,6 @@ Pi 直接加载 `src/index.ts`：无需构建步骤，除 Pi 本身之外没有�
 /think deep                  提高当前范式的强度
 /think lang zh               菜单、帮助、状态栏改用中文（`en` 切回）
 /think placement thinking    结构留在思考区，回答只给结论
-/think config                显示当前生效的配置文件与取值
 /think off                   回到 Pi 默认的推理
 ```
 
@@ -121,15 +120,16 @@ Harness gate (external control): pruned Branch_B (3/10). Build only on: Branch_A
 | `answer` | 分支、评分、批判、帽子 |
 | `thinking`（默认） | 只有结论；结构留在思考区 |
 
-用 `thinking` 时，契约要求模型把结构留在推理里；如果它还是写进了回答，harness 会把那些段落移到思考区。
+用 `thinking` 时，模型把带标记的结构写在它产出的正文里，harness 再把这些段落作为加粗小标题移到思考区——回答只留结论。这是有意选的：只要求「结构留在私有推理里」根本无法验证，真实会话里一个推理预算短的模型在 `once hats` 那一轮只写了一个 emoji 就正常作答了。
 
 ## 开发
 
 ```bash
-node --test tests/selftest.ts    # 91 个单元测试：无模型、无网络
+node --test tests/selftest.ts    # 97 个单元测试：无模型、无网络
 node tests/livecheck.mjs         # 针对真实 Pi 会话的端到端检查（18 用例）
 node tests/livecheck.mjs tot hats  # 只跑指定范式子集
 node tests/livecheck.mjs options   # 配置 startup、语言、放置、自然语言 /think
+node tests/livecheck.mjs startup:config  # 单独重跑一条选项用例
 npm test                         # 单元测试
 npm run check                    # 单元测试 + 实跑检查
 ```

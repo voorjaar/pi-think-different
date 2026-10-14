@@ -102,10 +102,10 @@ Rules that keep this useful:
 - Two session options change what the user sees, not how you reason: `/think lang en|zh` renders the
   menus, catalogue, and status in one language at a time, and `/think placement answer|thinking` decides
   whether the paradigm's structure appears in the visible answer or stays in the thinking block. With
-  `thinking` placement, keep branches, scores, and critiques out of the answer text and let the answer
-  carry the conclusion only.
+  `thinking` placement, write the sections with their markers in the text you produce - the harness moves
+  them into the thinking block - and let the answer carry the conclusion only. Structure that exists only in
+  private reasoning cannot be verified and cannot be moved.
 - Defaults live in `~/.pi/agent/extensions/pi-think-different/config.json` (extension),
   `~/.pi/agent/pi-think-different.json` (your defaults for every project), and
   `<repo>/.pi/pi-think-different.json` (per-project), in that precedence order; each holds `startup`,
-  `intensity`, `placement`, `language`. `/think config` shows what is in play. Do not edit
-  those files unless the user asks you to.
+  `intensity`, `placement`, `language`. Do not edit those files unless the user asks you to.

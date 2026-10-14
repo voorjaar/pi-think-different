@@ -44,7 +44,7 @@ as the model wrote it.
 Compliance shipped: while a paradigm is active every reply uses it - including trivial ones - stated in
 the contract and the skill rather than policed by a redo loop.
 
-Test coverage shipped: 91 unit tests over the pure modules, and 18 live cases (9 paradigms, the `think`
+Test coverage shipped: 97 unit tests over the pure modules, and 18 live cases (9 paradigms, the `think`
 tool in run mode, and 8 option cases: language, prose `/think`, `startup` from the project config,
 `startup` from the agent-level config, `thinking` placement, `random` switching, and the trivial-prompt
 mandate). Live cases run in scratch directories so a real user's own config layer cannot change a verdict.
@@ -118,14 +118,14 @@ Each new paradigm must ship both layers, not just a prompt.
 - Not a renderer with user-chosen styles. Labels are bold text in the session language; `hats` is
   verbatim. That is settled, not a preference to expose.
 
-## Open bugs found by pure-function probes (2026-10-14)
+## Bugs found by pure-function probes (2026-10-14)
 
 Found by driving the pure modules with realistic model output - not by running Pi. Every one is reachable
-in normal use, and none of them is covered by the 91 unit tests, so a green suite is not evidence of
-correctness here. Reported without fixes: each fix changes visible behaviour and needs its own decision
-plus a regression test.
+in normal use, and none of them was covered by the unit suite, so a green suite is not evidence of
+correctness here. **1-7 are fixed**, each with a regression test named after the symptom; **8 and 9 stay
+open** until each has its own decision.
 
-**1. A task word hijacks the `/think` command.** `parseThinkArgs` (`src/render.ts`) accepts
+**1. A task word hijacks the `/think` command.** *(fixed)* `parseThinkArgs` (`src/render.ts`) accepted
 `help | list | status | off | auto | random | once | config | lang | placement` as a sub-command wherever
 the token appears, even after the paradigm token. The keyword wins, the paradigm is never applied, and the
 session state may change as a side effect:
@@ -138,12 +138,13 @@ session state may change as a side effect:
 /think first-principles auto scaling limits  -> action=auto     switches to auto mode
 ```
 
-Fix direction: recognise command keywords only at token index 0. `lang zh`, `placement thinking`,
-`auto deep`, and `once hats deep` all keep working; nothing in the current suite depends on a keyword in a
-later position. Intensity tokens are a milder version of the same problem (`/think cot deep dive into the
-parser` silently loses "deep") and are usually harmless because that reading is the intended one.
+Fix applied: command keywords are recognised only at token index 0. `lang zh`, `placement thinking`,
+`auto deep`, and `once hats deep` all keep working; nothing in the suite depends on a keyword in a later
+position. Intensity tokens are a milder version of the same problem (`/think cot deep dive into the
+parser` silently loses "deep") and are left alone because that reading is usually the intended one.
+Test: `parse: command keywords count only as the first token`.
 
-**2. `placement: "answer"` deletes the first line of a section.** The `labelOnly` test in
+**2. `placement: "answer"` deletes the first line of a section.** *(fixed)* The `labelOnly` test in
 `naturalizeMarkers` (`src/placement.ts`) treats a section's first line as a redundant label when it is
 under 48 characters and contains none of `。！？!?;，,` - and ASCII `.` is not in that set, so the only real
 discriminator is length. A short sentence of body text is then dropped from the answer the user reads:
@@ -160,11 +161,14 @@ Two hosts means two clocks that can disagree.    <- 51 chars: kept
 </angle:system>
 ```
 
-Fix direction: drop the length heuristic. Treat the first line as a label only when it is genuinely a
-label - a `#{1,6}` heading, an explicit `Black: risk - …` prefix (already handled), or text that is
-redundant with the heading about to be printed.
+Fix applied: the length heuristic is gone. A first line is dropped only when it is genuinely a label - a
+`#{1,6}` heading, an explicit `Black: risk - …` prefix (already handled), or text whose meaningful words
+are all already in the heading about to be printed, lightly stemmed and with a character-based variant for
+Chinese. A label line with no body under it is kept, because dropping it would empty the section.
+Tests: `placement: a short first line of body text is not treated as a label`,
+`placement: a label line the model wrote is still replaced, not duplicated`.
 
-**3. `placement: "thinking"` corrupts text when spans nest.** The dedup filter in `extractStructure`
+**3. `placement: "thinking"` corrupts text when spans nest.** *(fixed)* The dedup filter in `extractStructure`
 compares each span only with the immediately previous sorted span instead of the running maximum end, so
 the *second* span nested inside an outer one survives. Cutting spans from the back then slices the already
 shortened string with stale offsets:
@@ -177,21 +181,63 @@ answer:    Intro prose that must survive. / urvive.   <- word fragment left behi
 
 The same mechanism splits a hats section when one hat's body mentions another hat's emoji
 (`⚪ Facts: the ⚫ black hat is the one people skip`): the section is cut mid-way and its second line stays
-in the visible answer while the rest moves to thinking. Fix direction: compare against the running maximum
-end, in `extractStructure` and in the identical filter inside `naturalizeMarkers`.
+in the visible answer while the rest moves to thinking. Fix applied: `dropNestedSpans` compares against the
+running maximum end, in `extractStructure` and in the identical filter inside `naturalizeMarkers`. When a
+hats body names another hat's emoji the extraction now declines rather than leaving half a section behind.
+Test: `placement: nested spans do not corrupt the surrounding prose`.
 
-**4. `injectedParadigm` is never cleared.** `src/index.ts` assigns it in `before_agent_start` and nowhere
+**4. `injectedParadigm` is never cleared.** *(fixed)* `src/index.ts` assigned it in `before_agent_start` and nowhere
 resets it, so after `/think off` - or once `/think once <paradigm>` has been consumed - the next turn gets
 no contract injected but `message_end` still applies that paradigm's placement and debris rules to a plain
 answer. `cot` is the worst case: `<answer>` and `<reasoning>` are stripped from ordinary prose, including
-from a code block that quotes them.
+from a code block that quotes them. Fix applied: `before_agent_start` clears `injectedParadigm` before it
+decides, so a turn with no contract also gets no rendering. Verified by hand rather than by a unit test -
+it lives in the Pi wiring.
 
-**5. Run-mode score parsing is loose.** `extractScores` accepts any `n/10` on a line, so prose containing
+**5. `placement: "thinking"` moved the conclusion as well as the structure.** *(fixed)* Found by reading the
+real session transcript under `~/.pi/agent/sessions` rather than by a probe: the model wrote all six hats
+**and** the recipe into the visible answer, and what reached the user was a single line -
+`- 偏淡 → 盐分两次放（蛋液里一点、番茄里一点），比只放一次更入味。` `findSectionSpan` gives an unclosed
+bare-token section (an emoji hat has no close tag) no end, so the black hat's span ran to the end of the text
+and then backed off exactly one line: everything from `⚫ 风险` through the last bullet moved to thinking, and
+only that final bullet was left behind.
+
+Fix applied: a bare-token section ends at the next blank line as well as at the next section token - a hat is
+a block, not the rest of the answer - and the "back off to the end of the previous line" rule now runs only
+when a stop token really landed mid-line, so the last line is no longer pushed out of its own section.
+Replaying the session's own text now keeps 863 characters of recipe in the answer and moves 343 characters of
+hats to thinking. Test: `placement: a conclusion after the last hat stays in the answer`.
+
+**6. `/think config` printed nothing in interactive mode.** *(fixed - the command is gone)* It called
+`ctx.ui.notify(configPathsMessage(...), "info")` and then `ctx.ui.notify(describe(), "info")`. Pi's
+interactive status renderer does not append a second line: `showStatus` reuses the previous status component
+when the last two chat children are `lastStatusText` and its spacer, so the second call overwrote the first
+and the only thing on screen was the familiar `thinking paradigm: …` line. RPC mode emits every notify as its
+own `extension_ui_request` record, which is why the live harness saw both messages and the case looked fine.
+Fix applied: the sub-command, its help line, and its completion item are removed; `/think config` now parses
+as an unknown word and reports it with the catalogue.
+
+**7. `placement: "thinking"` evaporated on a turn with a short reasoning budget.** *(fixed)* From the user's
+session transcript: `/think once hats` on 「如何做番茄炒蛋」. The contract reached the model intact - the session
+record shows the full `thinking_paradigm` section and the per-turn reminder - and the model produced a
+211-character reasoning block that said it was applying the six hats, printed one `🟢` line, then answered
+normally. Nothing could catch it: `message_end` relocates only structure the model wrote in the *answer*, and
+a thinking block with no markers is invisible to it, so `thinking` was the one placement with no enforcement
+path at all.
+
+Fix applied: the thinking-placement clause now asks for the enforceable path - write the sections with their
+markers in the text you produce, and the harness moves them into the thinking block as bold labels - and says
+outright that private reasoning only "cannot be verified and cannot be moved", and that "naming the paradigm,
+or writing one marker with nothing under it, is not running it". `MANDATE_CLAUSE` carries the same sentence.
+Tests: `render: private reasoning alone does not count as running the paradigm`,
+`render: placement thinking moves the structure out of the answer`.
+
+**8. Run-mode score parsing is loose.** `extractScores` accepts any `n/10` on a line, so prose containing
 "8/10 timeouts" or a date produces a phantom candidate and the gate note tells the next step to "Build only
 on: item-1 (8/10)". Conversely, a bracketed label on its own line followed by several `Score: n/10` lines
 yields one entry (labels are deduplicated), so the later scores are silently ignored.
 
-**6. Two cosmetic reporting gaps.** The `think` tool reports `cost` as all zeros while its token totals
+**9. Two cosmetic reporting gaps.** The `think` tool reports `cost` as all zeros while its token totals
 are real, and one step template in `paradigms.ts` already contains `{{limits}}`, so `runWorkflow` prints
 the harness budget line twice for that step.
 

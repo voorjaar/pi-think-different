@@ -17,7 +17,8 @@ const MANDATE_CLAUSE =
 	"Application rule, no exceptions: while this paradigm is active, every reply you give in this session is produced through this structure - including a short, trivial, factual, or one-line one. " +
 	"A direct answer with no structure is not an acceptable reply: the paradigm is a standing instruction you accepted, not a filter you apply when a request looks substantial enough. " +
 	"Only the paradigm named in this section applies now; a paradigm named in an earlier turn is expired, and the structure in your earlier replies is finished output, not a pattern to keep copying. " +
-	"Keep a trivial reply short inside the structure, never outside it, and never comment about the structure itself - just run it.";
+	"Keep a trivial reply short inside the structure, never outside it, and never comment about the structure itself - just run it. " +
+	"Writing the sections is what running the paradigm means: naming the paradigm, or writing one marker with nothing under it, is not running it.";
 
 /**
  * The per-turn reminder, injected as a message alongside the user prompt.
@@ -29,7 +30,7 @@ const MANDATE_CLAUSE =
  * what makes the switch land.
  */
 export function renderTurnReminder(paradigm: Paradigm, placement: Placement, switchedFrom?: string): string {
-	const where = placement === "thinking" ? "inside your thinking block" : "in your answer";
+	const where = placement === "thinking" ? "spelled out in the text you produce - the harness moves it into your thinking block" : "in your answer";
 	const head = switchedFrom
 		? `Thinking paradigm for this turn: ${paradigm.id} (${paradigm.title}). It replaced ${switchedFrom}: that paradigm is finished, and the structure in your earlier replies is its output, not a pattern to continue.`
 		: `Thinking paradigm for this turn: ${paradigm.id} (${paradigm.title}).`;
@@ -83,7 +84,7 @@ export function renderScaffoldForTask(paradigm: Paradigm, intensity: Intensity, 
 /** Human-readable catalogue lives in ui.ts because it is localized. */
 
 export interface ThinkArgs {
-	action: "help" | "list" | "status" | "off" | "auto" | "random" | "once" | "set" | "intensity" | "language" | "placement" | "config";
+	action: "help" | "list" | "status" | "off" | "auto" | "random" | "once" | "set" | "intensity" | "language" | "placement";
 	paradigm?: Paradigm;
 	paradigmName?: string;
 	intensity?: Intensity;
@@ -103,8 +104,10 @@ export interface ThinkArgs {
  * Parse `/think` arguments.
  * Accepted shapes:
  *   (empty) | help | list | status | off | auto [intensity] | once <paradigm> [intensity]
- *   <paradigm> [intensity] | <intensity> [of current] | config
+ *   <paradigm> [intensity] | <intensity> [of current]
  *   lang <en|zh> | placement <answer|thinking>
+ * Command keywords count only as the first token: after that the remaining text is the task, so a task
+ * that happens to contain "status", "list", "off", or "auto" stays a task.
  */
 export function parseThinkArgs(raw: string): ThinkArgs {
 	const tokens = raw.trim().split(/\s+/).filter(Boolean);
@@ -116,17 +119,17 @@ export function parseThinkArgs(raw: string): ThinkArgs {
 	let placement: Placement | undefined;
 	const rest: string[] = [];
 
-	for (const token of tokens) {
+	for (const [index, token] of tokens.entries()) {
 		const lower = token.toLowerCase();
-		if (action === "set" && (lower === "help" || lower === "list" || lower === "status" || lower === "off" || lower === "auto" || lower === "random" || lower === "随机" || lower === "once" || lower === "config")) {
+		if (index === 0 && (lower === "help" || lower === "list" || lower === "status" || lower === "off" || lower === "auto" || lower === "random" || lower === "随机" || lower === "once")) {
 			action = lower === "随机" ? "random" : (lower as ThinkArgs["action"]);
 			continue;
 		}
-		if (action === "set" && (lower === "lang" || lower === "language" || lower === "语言")) {
+		if (index === 0 && (lower === "lang" || lower === "language" || lower === "语言")) {
 			action = "language";
 			continue;
 		}
-		if (action === "set" && (lower === "placement" || lower === "结构")) {
+		if (index === 0 && (lower === "placement" || lower === "结构")) {
 			action = "placement";
 			continue;
 		}
@@ -150,7 +153,6 @@ export function parseThinkArgs(raw: string): ThinkArgs {
 
 	if (action === "language") return { action, language };
 	if (action === "placement") return { action, placement };
-	if (action === "config") return { action };
 
 	// First remaining token is the paradigm candidate; anything after it is free text.
 	const candidate = rest.length > 0 ? rest[0] : undefined;
