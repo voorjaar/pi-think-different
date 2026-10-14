@@ -21,8 +21,15 @@ import process from "node:process";
 
 import { markerHeading, resolveParadigm } from "../src/paradigms.ts";
 
-const RUN_TIMEOUT_MS = Math.max(60_000, Math.min(900_000, Number(process.env.LIVECHECK_TIMEOUT_MS ?? 420_000)));
+const RUN_TIMEOUT_MS = Math.max(60_000, Number(process.env.LIVECHECK_TIMEOUT_MS ?? 420_000));
 const CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.LIVECHECK_CONCURRENCY ?? 3)));
+
+/**
+ * A case's own `timeoutMs` wins over the default. It used to win only for option cases: paradigm cases
+ * passed `RUN_TIMEOUT_MS` straight to `runPi`, so a budget written on a paradigm case was decoration and
+ * the longest-output paradigms kept dying at the default.
+ */
+const caseTimeoutMs = (entry) => Math.max(60_000, entry.timeoutMs ?? RUN_TIMEOUT_MS);
 
 /** One prompt per paradigm: short, self-contained, and impossible to answer in the right shape by accident. */
 const LIVE_CASES = [
@@ -389,7 +396,7 @@ async function checkParadigm(entry) {
 	// Hermetic: run in a scratch cwd that pins placement=answer, otherwise the user's own
 	// <agentDir>/pi-think-different.json (e.g. placement: "thinking") moves the structure out of the
 	// answer and every marker-in-the-answer case fails for the user's taste instead of the code's.
-	const { records, stderr } = await runPi(["--mode", "json", "--think", paradigm.id, "-p", entry.prompt], RUN_TIMEOUT_MS, scratchCwd({}));
+	const { records, stderr } = await runPi(["--mode", "json", "--think", paradigm.id, "-p", entry.prompt], caseTimeoutMs(entry), scratchCwd({}));
 	const text = collectAssistantText(records);
 	const missing = missingMarkers(text, paradigm.markers);
 	const extensionErrors = (stderr.match(/think-different[^\n]*/g) ?? []).filter((line) => /error|failed|throw/i.test(line));
@@ -419,7 +426,7 @@ async function checkOption(entry) {
 		: ["--mode", "json", "-p", entry.prompt];
 	const viaRpc = Array.isArray(entry.rpc);
 	// Chained cases (RPC drives two turns) nest more model calls and need their own budget.
-	const timeoutMs = entry.timeoutMs ?? RUN_TIMEOUT_MS;
+	const timeoutMs = caseTimeoutMs(entry);
 	const session = viaRpc ? await runPiRpc(cwd, entry.rpc, timeoutMs) : await runPi(jsonArgs, timeoutMs, cwd, env);
 	const { records, stderr } = session;
 	const responses = session.responses ?? new Map();
@@ -580,6 +587,8 @@ async function main() {
 	}
 
 	const results = [];
+	const budgets = [...cases, ...optionCases].map((entry) => `${entry.paradigm} ${Math.round(caseTimeoutMs(entry) / 1000)}s`).join(", ");
+	console.log(`case budgets: ${budgets}${requested.length === 0 || wantTool ? `, tool:run ${Math.round((RUN_TIMEOUT_MS * 3) / 1000)}s` : ""}`);
 	const report = (result) => {
 		results.push(result);
 		console.log(`${result.ok ? "PASS" : "FAIL"} ${result.id.padEnd(18)} ${result.detail}`);

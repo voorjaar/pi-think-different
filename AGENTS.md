@@ -103,6 +103,9 @@ npm run check                   # unit suite + live checks
   `tool:run` case carry 900 s / 1500 s budgets each, so a 45-minute budget truncates the suite part-way.
   Run it in the background with 60+ minutes, and finish the missing cases by name
   (`node tests/livecheck.mjs critique angles startup:config tool`) instead of re-running all 18.
+  `livecheck.mjs` prints the effective `case budgets:` line first - a budget on **any** case kind must
+  show up there, because paradigm cases once passed the default timeout straight to `runPi` and a budget
+  written on a paradigm case was decoration.
 - A single dropped marker in one live run is usually model variance, not a regression: `livecheck.mjs`
   retries a `missing markers` verdict once and keeps the better attempt.
 
