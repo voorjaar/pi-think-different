@@ -3,7 +3,11 @@
  * Pure functions: no Pi imports.
  */
 
-import { isIntensity, listParadigms, resolveParadigm, type Intensity, type Paradigm } from "./paradigms.ts";
+import { isIntensity, resolveParadigm, type Intensity, type Paradigm } from "./paradigms.ts";
+import { isPlacement, type Language, type Placement } from "./config.ts";
+import { placementClause } from "./placement.ts";
+
+export { renderList } from "./ui.ts";
 
 /** Section tag name used in the structured system prompt. */
 export const SECTION_TAG = "thinking_paradigm";
@@ -11,11 +15,6 @@ export const SECTION_TAG = "thinking_paradigm";
 const SKIP_CLAUSE =
 	"Escape hatch: if the request is trivial - a lookup, a rename, a one-line edit, a direct shell command, small talk - skip this structure entirely and answer normally. " +
 	"Apply the structure to the substantive part only, and never repeat it across turns of the same trivial exchange.";
-
-const VISIBLE_CLAUSE =
-	"Emit the structure in your visible answer, not only in private thinking. Keep each block short: this is scaffolding for the reasoning, not extra prose.\n" +
-	"Tag discipline (this is verified mechanically): write each tag exactly as spelled, on its own line - for example a line containing `<thought_tree>` and a later line containing `</thought_tree>`. " +
-	"Do not replace a tag with a heading, bold label, emoji, or table, and do not bury the entire structure inside one code fence. If the tags are missing, the paradigm counts as not run.";
 
 export function intensityFor(value: string | undefined, fallback: Intensity = "standard"): Intensity {
 	return isIntensity(value) ? value : fallback;
@@ -36,7 +35,7 @@ export function renderBody(paradigm: Paradigm, intensity: Intensity): string {
 }
 
 /** The full prompt section injected into the system prompt. */
-export function renderSection(paradigm: Paradigm, intensity: Intensity, origin?: string, task?: string): string {
+export function renderSection(paradigm: Paradigm, intensity: Intensity, placement: Placement, origin?: string, task?: string): string {
 	const header = `${paradigm.emoji} Active thinking paradigm: ${paradigm.title} (${paradigm.id})${origin ? ` [${origin}]` : ""}.`;
 	const parts = [
 		header,
@@ -44,7 +43,7 @@ export function renderSection(paradigm: Paradigm, intensity: Intensity, origin?:
 		"Apply this thinking paradigm to substantive work in this session.",
 	];
 	if (task) parts.push(`Concrete task for this turn: ${task}`);
-	parts.push(renderBody(paradigm, intensity), VISIBLE_CLAUSE, SKIP_CLAUSE);
+	parts.push(renderBody(paradigm, intensity), placementClause(placement, paradigm), SKIP_CLAUSE);
 	return parts.join("\n\n");
 }
 
@@ -59,24 +58,15 @@ export function renderScaffoldForTask(paradigm: Paradigm, intensity: Intensity, 
 	].join("\n\n");
 }
 
-/** Human-readable catalogue for `/think list` and the `think` tool. */
-export function renderList(): string {
-	const lines = listParadigms().map((paradigm) => {
-		const aliases = paradigm.aliases.filter((alias) => alias !== paradigm.id).join(", ");
-		return [
-			`${paradigm.emoji} ${paradigm.id} (${paradigm.titleZh}) - ${paradigm.summary}`,
-			`   best for: ${paradigm.bestFor}`,
-			`   cost: ${paradigm.cost}   aliases: ${aliases || "-"}`,
-		].join("\n");
-	});
-	return lines.join("\n");
-}
+/** Human-readable catalogue lives in ui.ts because it is localized. */
 
 export interface ThinkArgs {
-	action: "help" | "list" | "status" | "off" | "auto" | "once" | "set" | "intensity";
+	action: "help" | "list" | "status" | "off" | "auto" | "once" | "set" | "intensity" | "language" | "placement" | "config";
 	paradigm?: Paradigm;
 	paradigmName?: string;
 	intensity?: Intensity;
+	language?: Language;
+	placement?: Placement;
 	/** Free text after the paradigm token: the concrete problem to think about. */
 	task?: string;
 	/** True when a paradigm token was present but unknown. */
@@ -87,7 +77,8 @@ export interface ThinkArgs {
  * Parse `/think` arguments.
  * Accepted shapes:
  *   (empty) | help | list | status | off | auto [intensity] | once <paradigm> [intensity]
- *   <paradigm> [intensity] | <intensity> [of current]
+ *   <paradigm> [intensity] | <intensity> [of current] | config
+ *   lang <en|zh> | placement <answer|thinking>
  */
 export function parseThinkArgs(raw: string): ThinkArgs {
 	const tokens = raw.trim().split(/\s+/).filter(Boolean);
@@ -95,12 +86,33 @@ export function parseThinkArgs(raw: string): ThinkArgs {
 
 	let action: ThinkArgs["action"] = "set";
 	let intensity: Intensity | undefined;
+	let language: Language | undefined;
+	let placement: Placement | undefined;
 	const rest: string[] = [];
 
 	for (const token of tokens) {
 		const lower = token.toLowerCase();
-		if (action === "set" && (lower === "help" || lower === "list" || lower === "status" || lower === "off" || lower === "auto" || lower === "once")) {
+		if (action === "set" && (lower === "help" || lower === "list" || lower === "status" || lower === "off" || lower === "auto" || lower === "once" || lower === "config")) {
 			action = lower as ThinkArgs["action"];
+			continue;
+		}
+		if (action === "set" && (lower === "lang" || lower === "language" || lower === "语言")) {
+			action = "language";
+			continue;
+		}
+		if (action === "set" && (lower === "placement" || lower === "结构")) {
+			action = "placement";
+			continue;
+		}
+		if (action === "language" && !language) {
+			const ZH_TOKENS = ["zh", "zh-cn", "cn", "chinese", "中文"];
+			if (lower === "en") language = "en";
+			else if (ZH_TOKENS.includes(lower)) language = "zh";
+			else continue;
+			continue;
+		}
+		if (action === "placement" && !placement && isPlacement(lower)) {
+			placement = lower as Placement;
 			continue;
 		}
 		if (!intensity && (lower === "light" || lower === "standard" || lower === "deep")) {
@@ -109,6 +121,10 @@ export function parseThinkArgs(raw: string): ThinkArgs {
 		}
 		rest.push(token);
 	}
+
+	if (action === "language") return { action, language };
+	if (action === "placement") return { action, placement };
+	if (action === "config") return { action };
 
 	// First remaining token is the paradigm candidate; anything after it is free text.
 	const candidate = rest.length > 0 ? rest[0] : undefined;

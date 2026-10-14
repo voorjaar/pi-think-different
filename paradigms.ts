@@ -39,13 +39,16 @@ export interface Paradigm {
 	aliases: string[];
 	/** One-line summary shown in `/think list` and the picker. */
 	summary: string;
+	summaryZh: string;
 	/** When this paradigm pays for itself. */
 	bestFor: string;
+	bestForZh: string;
 	/** Structural blocks the model must emit. */
 	markers: string[];
 	limits: { branches: number; depth: number };
 	/** Rough cost, so the user can pick a paradigm knowingly. */
 	cost: string;
+	costZh: string;
 	/** Full instruction block. */
 	body: string;
 	/** Compact one-paragraph instruction for `intensity: light`. */
@@ -83,10 +86,13 @@ export const PARADIGMS: Paradigm[] = [
 		emoji: "🧠",
 		aliases: ["chain", "chain-of-thought", "思维链"],
 		summary: "Explicit premises, decomposition, and self-checks before the answer.",
+		summaryZh: "先列出前提、拆解问题、自检，然后才给答案。",
 		bestFor: "General hard questions, calculations, anything where a silent wrong answer is expensive.",
+		bestForZh: "一般难题、计算，以及错了却不明显的代价高的场合。",
 		markers: ["<reasoning>", "<answer>"],
 		limits: { branches: 1, depth: 1 },
 		cost: "1 pass, cheap",
+		costZh: "1 遍，开销低",
 		keywords: ["why", "explain", "prove", "calculate", "step by step", "推导", "解释", "为什么"],
 		skipKeywords: COMMON_SKIP,
 		body: `Apply strict chain-of-thought before answering.
@@ -126,10 +132,13 @@ The conclusion, written so it stands on its own without the reasoning block.
 		emoji: "🌳",
 		aliases: ["tree", "tree-of-thoughts", "思维树", "bfs", "dfs"],
 		summary: "Branch several distinct approaches, score them, prune, backtrack.",
+		summaryZh: "分出多条真正不同的路线，打分、剪枝、回溯。",
 		bestFor: "Design choices, algorithms, planning, anything with more than one viable route.",
+		bestForZh: "设计选型、算法、规划，凡是有不止一条可行路线的问题。",
 		markers: ["<thought_tree>", "<answer>"],
 		limits: { branches: 3, depth: 2 },
 		cost: "1 pass scaffolded / 4 model calls in run mode",
+		costZh: "注入契约 1 遍 / run 模式 4 次模型调用",
 		keywords: ["approach", "options", "alternative", "design", "plan", "algorithm", "方案", "选型", "设计", "思路"],
 		skipKeywords: COMMON_SKIP,
 		body: `Apply Tree-of-Thoughts: branch, score, prune, backtrack.
@@ -182,10 +191,13 @@ Rules: at most {{branches}} first-level branches, at most {{depth}} levels deep.
 		emoji: "🕸️",
 		aliases: ["graph", "graph-of-thoughts", "思维网", "merge"],
 		summary: "Independent nodes, then merge, cross-check, and refine them.",
+		summaryZh: "先生成互相独立的节点，再合并、交叉校验、精炼。",
 		bestFor: "Multi-module work: integrating parts, cross-validating sources, combining designs.",
+		bestForZh: "多模块工作：整合各部分、交叉验证来源、合并设计。",
 		markers: ["<thought_graph>", "<answer>"],
 		limits: { branches: 3, depth: 2 },
 		cost: "1 pass scaffolded / 3 model calls in run mode",
+		costZh: "注入契约 1 遍 / run 模式 3 次模型调用",
 		keywords: ["integrate", "combine", "merge", "cross-check", "interface", "consolidate", "整合", "打通", "交叉验证"],
 		skipKeywords: COMMON_SKIP,
 		body: `Apply Graph-of-Thoughts: generate independent nodes, then merge and cross-check them.
@@ -231,10 +243,13 @@ The merged result.
 		emoji: "🔍",
 		aliases: ["self-critique", "self-correction", "critic", "自我修正", "自我批判", "红队"],
 		summary: "Draft, attack your own draft hardest, then rebuild it.",
+		summaryZh: "先起草，再最狠地攻击自己的草稿，然后重建。",
 		bestFor: "Code you are about to ship, calculations, claims, prose logic.",
+		bestForZh: "即将交付的代码、计算、论断、文字逻辑。",
 		markers: ["<draft>", "<criticism>", "<refinement>", "<answer>"],
 		limits: { branches: 1, depth: 1 },
 		cost: "1 pass scaffolded / 3 model calls in run mode",
+		costZh: "注入契约 1 遍 / run 模式 3 次模型调用",
 		keywords: ["review", "bug", "fix", "correct", "robust", "edge case", "audit", "检查", "评审", "有没有问题", "对不对"],
 		skipKeywords: COMMON_SKIP,
 		body: `Run a critique loop on your own answer.
@@ -282,10 +297,13 @@ The final version only.
 		emoji: "🧪",
 		aliases: ["elimination", "hypotheses", "diagnose", "debug", "排查", "假设", "归因", "定位"],
 		summary: "Enumerate falsifiable causes, eliminate them with evidence.",
+		summaryZh: "列出可证伪的候选原因，用证据逐个排除。",
 		bestFor: "Bugs, outages, flaky tests, 'why is this happening at all'.",
+		bestForZh: "Bug、故障、偶发测试、「这到底到底为什么会发生」。",
 		markers: ["<hypothesis_matrix>", "<validation_process>", "<answer>"],
 		limits: { branches: 4, depth: 1 },
 		cost: "1 pass scaffolded / 3 model calls in run mode",
+		costZh: "注入契约 1 遍 / run 模式 3 次模型调用",
 		keywords: ["why is it failing", "flaky", "intermittent", "root cause", "diagnose", "crash", "regression", "排查", "偶发", "根因"],
 		skipKeywords: COMMON_SKIP,
 		body: `Diagnose with hypothesis and elimination.
@@ -331,10 +349,13 @@ The surviving cause, the confidence level, and the single cheapest next check th
 		emoji: "🎩",
 		aliases: ["six-hats", "de-bono", "六顶思考帽", "思考帽", "帽子"],
 		summary: "Six separate lenses: facts, feeling, risk, value, alternatives, decision.",
+		summaryZh: "六个独立的视角：事实、直觉、风险、价值、替代方案、决策。",
 		bestFor: "Decisions, proposals, adoption calls, product and process trade-offs.",
+		bestForZh: "决策、方案、要不要采纳、产品与流程上的取舍。",
 		markers: ["⚪", "🔴", "⚫", "🟡", "🟢", "🔵", "<answer>"],
 		limits: { branches: 1, depth: 1 },
 		cost: "1 pass scaffolded / 6 model calls in run mode",
+		costZh: "注入契约 1 遍 / run 模式 6 次模型调用",
 		keywords: ["should we", "decision", "adopt", "propose", "trade-off", "worth it", "proposal", "要不要", "决策", "评估这个方案", "值不值"],
 		skipKeywords: COMMON_SKIP,
 		body: `Evaluate the matter through all six thinking hats, one hat at a time. Stay inside one hat per section; do not blend lenses.
@@ -373,10 +394,13 @@ The decision and the next actions.
 		emoji: "⚔️",
 		aliases: ["dialectic", "red-team", "steelman", "devil", "辩论", "反驳", "抬杠"],
 		summary: "Advocate, hardest critic, rebuttal, then a judge's verdict.",
+		summaryZh: "正方、最狠的反方、反驳，然后裁判给出判决。",
 		bestFor: "Contested calls where one side is already loaded in the conversation.",
+		bestForZh: "对话里已经有一方占了上风的争议判断。",
 		markers: ["<advocate>", "<critic>", "<rebuttal>", "<judge>", "<answer>"],
 		limits: { branches: 1, depth: 1 },
 		cost: "1 pass scaffolded / 4 model calls in run mode",
+		costZh: "注入契约 1 遍 / run 模式 4 次模型调用",
 		keywords: ["convince", "disagree", "argue", "risk of being wrong", "challenge", "is this right", "反驳", "站得住脚", "靠谱吗"],
 		skipKeywords: COMMON_SKIP,
 		body: `Run a structured debate on the position implied by the request.
@@ -413,10 +437,13 @@ The judged conclusion, stated with its residual uncertainty.
 		emoji: "⚛️",
 		aliases: ["first-principle", "axioms", "decompose", "第一性原理", "本质", "从零推"],
 		summary: "Strip conventions, list the real constraints, rebuild from them.",
+		summaryZh: "剥掉惯例，列出真实约束，从约束重新构建。",
 		bestFor: "When 'everyone does it this way' is the only reason for the current design.",
+		bestForZh: "当现有设计唯一的理由是「大家都这么做」的时候。",
 		markers: ["<decomposition>", "<axioms>", "<rebuild>", "<answer>"],
 		limits: { branches: 1, depth: 1 },
 		cost: "1 pass scaffolded / 3 model calls in run mode",
+		costZh: "注入契约 1 遍 / run 模式 3 次模型调用",
 		keywords: ["from scratch", "rewrite", "convention", "always done", "why do we do it this way", "simplify", "重做", "从零", "惯例", "为什么一定要"],
 		skipKeywords: COMMON_SKIP,
 		body: `Reason from first principles.
@@ -449,10 +476,13 @@ The rebuilt approach, with the unverified assumptions called out.
 		emoji: "📐",
 		aliases: ["multi-angle", "perspectives", "多角度", "多视角", "换个角度"],
 		summary: "Three orthogonal angles - mechanism, adversary, cost - then synthesis.",
+		summaryZh: "三个互相正交的角度——机制、对手、成本——然后综合。",
 		bestFor: "Reviewing code or a plan you wrote and are already attached to.",
+		bestForZh: "审查你自己写的、而且已经偏向它的代码或方案。",
 		markers: ["<angle:system>", "<angle:adversary>", "<angle:pragmatist>", "<synthesis>", "<answer>"],
 		limits: { branches: 1, depth: 1 },
 		cost: "1 pass scaffolded / 4 model calls in run mode",
+		costZh: "注入契约 1 遍 / run 模式 4 次模型调用",
 		keywords: ["review", "look over", "sanity check", "blind spot", "blindspot", "多角度", "盲区", "看看有没有问题"],
 		skipKeywords: COMMON_SKIP,
 		body: `Sweep three orthogonal angles, then synthesise. Keep each angle separate; do not let one excuse another.

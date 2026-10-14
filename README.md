@@ -58,6 +58,9 @@ No build step: Pi loads TypeScript directly. No dependencies beyond Pi itself.
 /think tot design a cache    pin the paradigm and name the problem to think about
 /think auto                  pick a paradigm per prompt by heuristic
 /think deep                  raise intensity of the current paradigm
+/think lang zh               menus, help, and status in Chinese (en to switch back)
+/think placement thinking    keep the structure in the thinking block, answer only the conclusion
+/think config                show which config files are in play and their values
 /think off                   back to default Pi reasoning
 ```
 
@@ -72,6 +75,44 @@ Start a headless or scripted session with a paradigm already on:
 ```bash
 pi --mode json --think tot -p "Design offline support for a note app"
 ```
+
+## Configuration
+
+Defaults come from two optional JSON files (later wins), and `/think` in the session wins over both:
+
+```text
+~/.pi/agent/extensions/pi-think-different/config.json   your defaults
+<repo>/.pi/think-different.json                        per-project override
+```
+
+Copy `config.example.jsonc` to `config.json` next to `index.ts` to get started. Comments (`//` and `/* */`) are allowed;
+a bad value is reported at session start and the rest of the file still applies.
+
+```jsonc
+{
+  "startup": "tot",        // paradigm id or alias, "auto", or "off"
+  "intensity": "standard", // light | standard | deep
+  "placement": "thinking", // answer | thinking
+  "language": "zh"         // en | zh
+}
+```
+
+**`language`** changes only the interface: the `/think` picker, `/think list`, help, the status line,
+and notifications are rendered in that one language - never both at once. The paradigm contracts
+injected into the system prompt stay English, because they are instructions to the model, and your
+own prompts are answered in whatever language you write them.
+
+**`placement`** decides where the paradigm's fine-grained structure lives:
+
+| value | visible answer contains |
+| --- | --- |
+| `answer` (default) | the branches, scores, criticisms, hats - the scaffolding is on display |
+| `thinking` | only the conclusion; the structure stays in the thinking block |
+
+`thinking` placement is enforced twice: the contract tells the model to keep the structure in its
+reasoning, and if the model puts it in the answer anyway, the harness cuts it out of the answer and
+re-attaches it as a thinking block. A structure you cannot see is a structure you cannot verify, so
+this is a deliberate trade-off, not a cleanup.
 
 ### The `think` tool
 
@@ -120,26 +161,32 @@ Unit tests (no model, no network):
 node --test selftest.ts
 ```
 
-36 tests covering: registry integrity and alias uniqueness, marker/contract consistency for every
+51 tests covering: registry integrity and alias uniqueness, marker/contract consistency for every
 paradigm, prompt rendering and intensity layering (including the concrete-task line from
-`/think <paradigm> <task>`), `/think` argument parsing, auto-selection
-(including "trivial prompts get no paradigm"), score extraction, external pruning, and the workflow
-engine against a scripted fake model (step order, placeholder filling, prior-step threading, harness
-branch budgets per intensity, output caps, `only:` reruns, failure propagation), and the location of
-the bundled skill.
+`/think <paradigm> <task>`), placement clauses, `/think` argument parsing, config validation and
+layering (language spellings, comment-tolerant parsing, unknown keys, malformed JSON), single-language
+catalogue and status rendering, structure extraction from tagged and heading-form answers,
+auto-selection (including "trivial prompts get no paradigm"), score extraction, external pruning, and
+the workflow engine against a scripted fake model (step order, placeholder filling, prior-step
+threading, harness branch budgets per intensity, output caps, `only:` reruns, failure propagation),
+and the location of the bundled skill.
 
 Live end-to-end checks (real Pi runs, one model request each):
 
 ```bash
-node livecheck.mjs            # every paradigm + the think tool in run mode
-node livecheck.mjs tot hats   # subset
+node livecheck.mjs            # every paradigm + config options + the think tool in run mode
+node livecheck.mjs tot hats   # paradigm subset only
+node livecheck.mjs options    # config-driven startup, language, and placement
 ```
 
-A live check spawns `pi --mode json --think <paradigm> -p "<prompt>"` and fails if the answer is
-missing any marker that paradigm is defined by. Verdicts stream in as each run finishes; cases run
-through a pool of 3 concurrent Pi sessions (`LIVECHECK_CONCURRENCY=1..4`), each allowed
-`LIVECHECK_TIMEOUT_MS` milliseconds (default 420000) before it is retried once. Pass `tool` as an
-argument to run only the `think`-tool case.
+A paradigm check spawns `pi --mode json --think <paradigm> -p "<prompt>"` and fails if the answer is
+missing any marker that paradigm is defined by. Option checks run Pi inside a scratch directory whose
+`.pi/think-different.json` sets the option under test, and assert what the user would actually see:
+the catalogue language, whether a config `startup` pins a paradigm without any flag, and whether a
+`thinking` placement leaves the structure out of the visible answer. Verdicts stream in as each run
+finishes; cases run through a pool of 3 concurrent Pi sessions (`LIVECHECK_CONCURRENCY=1..4`), each
+allowed `LIVECHECK_TIMEOUT_MS` milliseconds (default 420000) before it is retried once. Pass `tool` as
+an argument to run only the `think`-tool case.
 
 Every injected contract states its markers verbatim and forbids substituting a heading, bold label,
 emoji, or a single code fence for a tag. Models follow that discipline; a paradigm that degrades into
@@ -154,13 +201,17 @@ npm run check                # unit tests + live checks
 
 ```text
 pi-think-different/
-├── index.ts            # Pi wiring: command, tool, flag, prompt injection, session state
+├── index.ts            # Pi wiring: command, tool, flag, prompt injection, config load, session state
 ├── paradigms.ts        # paradigm registry: contracts, markers, workflow steps (pure)
 ├── render.ts           # prompt section rendering + /think argument parsing (pure)
+├── config.ts           # config schema, validation, layering, comment-tolerant parsing (pure)
+├── ui.ts               # every human-facing string, in one language at a time (pure)
+├── placement.ts        # structure placement: prompt clause + answer extraction (pure)
 ├── autoSelect.ts       # heuristic paradigm selection (pure)
 ├── workflow.ts         # multi-pass engine with external score gating (pure, injectable model)
 ├── selftest.ts         # unit tests
 ├── livecheck.mjs       # end-to-end checks against real Pi runs
+├── config.example.jsonc # copy to config.json to set your defaults
 ├── ROADMAP.md          # what counts as "works", and what gets built next
 └── skills/think-different/SKILL.md
 ```

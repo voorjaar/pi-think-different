@@ -16,7 +16,10 @@ import { fileURLToPath } from "node:url";
 
 import { selectParadigm } from "./autoSelect.ts";
 import { listParadigms, PARADIGMS, resolveParadigm } from "./paradigms.ts";
-import { intensityFor, parseThinkArgs, renderBody, renderList, renderSection, SECTION_TAG } from "./render.ts";
+import { intensityFor, parseThinkArgs, renderBody, renderSection, SECTION_TAG } from "./render.ts";
+import { DEFAULT_CONFIG, mergeConfigs, parseConfig, parseConfigText, stripJsonComments } from "./config.ts";
+import { extractStructure, placementClause } from "./placement.ts";
+import { describeState, helpLines, renderList } from "./ui.ts";
 import { branchBudget, extractScores, gateScores, renderWorkflowResult, runWorkflow, stepCharBudget, type ModelCallResult } from "./workflow.ts";
 import type { ParadigmStep } from "./paradigms.ts";
 
@@ -114,7 +117,7 @@ test("skill: the bundled SKILL.md sits next to the extension, not next to the se
 
 test("render: section carries the markers, the escape hatch, and the intensity", () => {
 	for (const paradigm of PARADIGMS) {
-		const section = renderSection(paradigm, "standard", "session");
+		const section = renderSection(paradigm, "standard", "answer", "session");
 		assert.ok(section.includes(paradigm.id), `${paradigm.id}: section names the paradigm`);
 		for (const marker of paradigm.markers) {
 			assert.ok(section.includes(marker), `${paradigm.id}: section missing marker ${marker}`);
@@ -127,11 +130,20 @@ test("render: section carries the markers, the escape hatch, and the intensity",
 	}
 });
 
+test("render: placement thinking moves the structure out of the answer", () => {
+	const paradigm = resolveParadigm("tot")!;
+	const section = renderSection(paradigm, "standard", "thinking", "session");
+	assert.ok(section.includes("run this paradigm's structure inside your reasoning"), "thinking placement clause missing");
+	assert.ok(!section.includes("Emit the structure in your visible answer"), "answer placement clause leaked into thinking placement");
+	assert.ok(section.includes("Required markers, verbatim"), "thinking placement must still require markers");
+	assert.ok(placementClause("answer", paradigm).includes("visible answer"), "answer placement clause missing");
+});
+
 test("render: a concrete task from /think is injected for the turn", () => {
 	const paradigm = resolveParadigm("tot")!;
-	const withTask = renderSection(paradigm, "standard", "session", "design a cache layer");
+	const withTask = renderSection(paradigm, "standard", "answer", "session", "design a cache layer");
 	assert.ok(withTask.includes("Concrete task for this turn: design a cache layer"), "task not injected");
-	assert.ok(!renderSection(paradigm, "standard", "session").includes("Concrete task"), "task line appeared without a task");
+	assert.ok(!renderSection(paradigm, "standard", "answer", "session").includes("Concrete task"), "task line appeared without a task");
 });
 
 test("render: light is shorter than standard is shorter than deep", () => {
@@ -151,13 +163,37 @@ test("render: limits are substituted from the paradigm", () => {
 	assert.ok(body.includes(`at most ${paradigm.limits.depth} levels deep`), "depth limit not filled");
 });
 
-test("render: catalogue lists every paradigm", () => {
-	const list = renderList();
-	for (const paradigm of PARADIGMS) {
-		assert.ok(list.includes(paradigm.id), `list missing ${paradigm.id}`);
-		assert.ok(list.includes(paradigm.titleZh), `list missing Chinese title for ${paradigm.id}`);
+test("render: catalogue lists every paradigm in each language, never both", () => {
+	for (const lang of ["en", "zh"] as const) {
+		const list = renderList(lang);
+		for (const paradigm of PARADIGMS) {
+			assert.ok(list.includes(paradigm.id), `list missing ${paradigm.id}`);
+			assert.ok(list.includes(lang === "zh" ? paradigm.summaryZh : paradigm.summary), `list missing ${lang} summary for ${paradigm.id}`);
+		}
+		const hasCJK = /[\u3400-\u4DBF\u4E00-\u9FFF]/.test(list);
+		const titles = renderList(lang);
+		const otherTitles = PARADIGMS.map((paradigm) => (lang === "zh" ? paradigm.title : paradigm.titleZh)).filter((title) => titles.includes(title));
+		assert.equal(otherTitles.length, 0, `${lang} list leaked the other language's titles`);
+		assert.equal(hasCJK, lang === "zh", `${lang} list has the wrong language`);
 	}
-	assert.ok(list.includes(SECTION_TAG) === false, "catalogue should not leak the section tag");
+	assert.equal(renderList("en").includes(SECTION_TAG), false, "catalogue should not leak the section tag");
+});
+
+test("ui: help and status follow the language option", () => {
+	const en = helpLines("en");
+	const zh = helpLines("zh");
+	assert.equal(en.length, zh.length, "help must cover the same commands in both languages");
+	assert.ok(zh.some((line) => /[\u4E00-\u9FFF]/.test(line)), "zh help has no Chinese");
+	assert.ok(!en.some((line) => /[\u4E00-\u9FFF]/.test(line)), "en help leaked Chinese");
+
+	const paradigm = resolveParadigm("tot")!;
+	const base = { mode: "sticky" as const, paradigm, paradigmId: paradigm.id, intensity: "standard" as const, placement: "answer" as const };
+	const enText = describeState({ ...base, lang: "en" });
+	const zhText = describeState({ ...base, lang: "zh" });
+	assert.ok(enText.startsWith("thinking paradigm:"), "en status wrong shape");
+	assert.ok(zhText.startsWith("思考范式："), "zh status wrong shape");
+	assert.ok(zhText.includes("思维树"), "zh status must use the Chinese paradigm name");
+	assert.ok(!zhText.includes(paradigm.title), "zh status leaked the English title");
 });
 
 test("render: intensityFor falls back safely", () => {
@@ -461,4 +497,159 @@ test("catalogue: paradigms are distinguishable by their markers", () => {
 
 test("catalogue: listParadigms exposes the whole registry", () => {
 	assert.equal(listParadigms().length, PARADIGMS.length);
+});
+
+// ---------------------------------------------------------------- config
+
+test("config: defaults are complete and valid", () => {
+	const parsed = parseConfig({});
+	assert.equal(parsed.problems.length, 0);
+	const merged = mergeConfigs([parsed.config]);
+	assert.equal(merged.language, DEFAULT_CONFIG.language);
+	assert.equal(merged.placement, DEFAULT_CONFIG.placement);
+	assert.equal(merged.intensity, DEFAULT_CONFIG.intensity);
+	assert.equal(merged.startup, DEFAULT_CONFIG.startup);
+	assert.equal(mergeConfigs([]).language, "en");
+});
+
+test("config: language accepts the documented spellings and rejects nonsense", () => {
+	for (const value of ["en", "zh", "zh-CN", "中文", " English "]) {
+		const parsed = parseConfig({ language: value });
+		assert.equal(parsed.problems.length, 0, `${value} rejected`);
+		assert.ok(parsed.config.language === "en" || parsed.config.language === "zh");
+	}
+	const bad = parseConfig({ language: "klingon" });
+	assert.equal(bad.config.language, undefined, "invalid language must not be applied");
+	assert.equal(bad.problems.length, 1);
+	assert.ok(bad.problems[0].includes("language"));
+});
+
+test("config: placement and intensity are validated independently", () => {
+	const good = parseConfig({ placement: "thinking", intensity: "deep" });
+	assert.equal(good.config.placement, "thinking");
+	assert.equal(good.config.intensity, "deep");
+	const bad = parseConfig({ placement: "side-channel", intensity: "huge" });
+	assert.equal(bad.config.placement, undefined);
+	assert.equal(bad.config.intensity, undefined);
+	assert.equal(bad.problems.length, 2);
+});
+
+test("config: startup keeps any non-empty string; unknown paradigms are caught at startup", () => {
+	assert.equal(parseConfig({ startup: "tot" }).config.startup, "tot");
+	assert.equal(parseConfig({ startup: "六顶帽子" }).config.startup, "六顶帽子");
+	assert.equal(parseConfig({ startup: "auto" }).config.startup, "auto");
+	assert.equal(parseConfig({ startup: "off" }).config.startup, "off");
+	assert.equal(parseConfig({ startup: "  tot  " }).config.startup, "tot", "startup not trimmed");
+	// The config layer does not know the registry; resolveParadigm decides.
+	assert.equal(resolveParadigm(parseConfig({ startup: "nope" }).config.startup), undefined);
+	assert.equal(parseConfig({ startup: 7 }).problems.length, 1);
+	assert.equal(parseConfig({ paradigm: "got" }).config.startup, "got", "paradigm is an alias for startup");
+});
+
+test("config: unknown keys are reported without discarding valid ones", () => {
+	const parsed = parseConfig({ language: "zh", lanugage: "en", placement: "answer" });
+	assert.equal(parsed.config.language, "zh");
+	assert.equal(parsed.config.placement, "answer");
+	assert.ok(parsed.problems.some((problem) => problem.includes("lanugage")), "typo not reported");
+});
+
+test("config: comment styles are tolerated without eating commented-out keys", () => {
+	const parsed = parseConfigText('{\n\t// "language": "zh",\n\t/* placement */\n\t"placement": "thinking",\n\t"intensity": "deep" // inline\n}\n');
+	assert.equal(parsed.problems.length, 0, parsed.problems.join("; "));
+	assert.equal(parsed.config.language, undefined, "commented-out key was applied");
+	assert.equal(parsed.config.placement, "thinking");
+	assert.equal(parsed.config.intensity, "deep");
+	assert.equal(stripJsonComments('{ "url": "http://x/y" }'), '{ "url": "http://x/y" }', "comment stripper broke a string");
+});
+
+test("config: malformed JSON is reported as one problem, not thrown", () => {
+	const parsed = parseConfigText(`{ "language": `);
+	assert.equal(parsed.config.language, undefined);
+	assert.equal(parsed.problems.length, 1);
+});
+
+test("config: merge precedence is later layer over earlier layer", () => {
+	const merged = mergeConfigs([
+		{ language: "en", intensity: "light", placement: "answer" },
+		{ language: "zh", intensity: "deep" },
+		{ placement: "thinking" },
+	]);
+	assert.equal(merged.language, "zh");
+	assert.equal(merged.intensity, "deep");
+	assert.equal(merged.placement, "thinking");
+});
+
+// ---------------------------------------------------------------- placement
+
+test("placement: tagged structure is moved out of the answer", () => {
+	const paradigm = resolveParadigm("tot")!;
+	const answer = [
+		"<thought_tree>",
+		"Branch A: cache-aside. Score: 8/10",
+		"Branch B: write-behind. Score: 4/10",
+		"[Prune] Branch B",
+		"</thought_tree>",
+		"",
+		"<answer>",
+		"Use cache-aside with a 60s TTL.",
+		"</answer>",
+	].join("\n");
+	const relocated = extractStructure(answer, paradigm);
+	const structure = relocated.structure ?? "";
+	assert.ok(structure.length > 0, "nothing was extracted");
+	assert.ok(structure.includes("Branch A"), "structure not extracted");
+	assert.ok(structure.includes("[Prune]"), "prune line not extracted");
+	assert.ok(!relocated.text.includes("Branch A"), "structure still in the answer");
+	assert.ok(relocated.text.includes("Use cache-aside"), "conclusion lost");
+});
+
+test("placement: heading-form paradigm sections are recognised too", () => {
+	const paradigm = resolveParadigm("hats")!;
+	const answer = [
+		"### ⚪ White Hat",
+		"Sales fell 12% in Q3.",
+		"### 🔴 Red Hat",
+		"The team feels burnt out.",
+		"### ⚫ Black Hat",
+		"Single-region deploys are a single point of failure.",
+		"",
+		"Conclusion: ship the canary behind a feature flag.",
+	].join("\n");
+	const relocated = extractStructure(answer, paradigm);
+	const structure = relocated.structure ?? "";
+	assert.ok(structure.length > 0, "nothing was extracted");
+	assert.ok(structure.includes("White Hat"), "hat sections not extracted");
+	assert.ok(structure.includes("Black Hat"), "last hat section not extracted");
+	assert.ok(relocated.text.includes("ship the canary"), "conclusion lost");
+});
+
+test("placement: nothing to move returns the answer untouched", () => {
+	const paradigm = resolveParadigm("cot")!;
+	const answer = "Just a plain answer with no structure markers at all.";
+	const relocated = extractStructure(answer, paradigm);
+	assert.equal(relocated.structure, undefined);
+	assert.equal(relocated.text, answer);
+});
+
+test("placement: an answer that is only structure is never emptied", () => {
+	const paradigm = resolveParadigm("got")!;
+	const answer = "<graph_of_thoughts>\nNode A -> Node B\n</graph_of_thoughts>";
+	const relocated = extractStructure(answer, paradigm);
+	assert.ok(relocated.text.trim().length > 0, "answer was emptied");
+});
+
+test("placement: parseThinkArgs takes lang, placement, and config", () => {
+	const zh = parseThinkArgs("lang zh");
+	assert.equal(zh.action, "language");
+	assert.equal(zh.language, "zh");
+	const chinese = parseThinkArgs("language 中文");
+	assert.equal(chinese.language, "zh");
+	assert.equal(chinese.action, "language");
+	const bare = parseThinkArgs("lang");
+	assert.equal(bare.action, "language");
+	assert.equal(bare.language, undefined);
+	const placed = parseThinkArgs("placement thinking");
+	assert.equal(placed.action, "placement");
+	assert.equal(placed.placement, "thinking");
+	assert.equal(parseThinkArgs("config").action, "config");
 });

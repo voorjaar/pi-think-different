@@ -30,26 +30,37 @@
  * CLI flag: `--think <paradigm|auto>` starts a session with that paradigm active.
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, TextContent, ThinkingContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { selectParadigm } from "./autoSelect.ts";
+import { DEFAULT_CONFIG, mergeConfigs, parseConfigText, type Language, type Placement, type ThinkConfig } from "./config.ts";
+import { extractStructure } from "./placement.ts";
 import { listParadigms, resolveParadigm, type Intensity, type Paradigm, type ParadigmStep } from "./paradigms.ts";
-import { intensityFor, parseThinkArgs, renderList, renderSection, renderScaffoldForTask, SECTION_TAG } from "./render.ts";
+import { intensityFor, parseThinkArgs, renderSection, renderScaffoldForTask, SECTION_TAG } from "./render.ts";
+import { autoSelectionMessage, configPathsMessage, configProblemMessage, describeState, helpLines, paradigmName, renderList, statusLabel, t, unknownParadigmMessage } from "./ui.ts";
 import { renderWorkflowResult, runWorkflow, type ModelCallResult } from "./workflow.ts";
 
 const ENTRY_TYPE = "think-different";
 const STATUS_KEY = "think";
+const EXT_DIR = dirname(fileURLToPath(import.meta.url));
 /**
  * Skill paths from `resources_discover` are resolved against the session cwd, so a relative
  * "skills/..." would only resolve when Pi happens to run inside this extension's folder.
- * Anchor the bundled skill to this file's own directory instead.
+ * Anchor extension-owned assets to this file's own directory instead.
  */
-const SKILL_PATH = join(dirname(fileURLToPath(import.meta.url)), "skills", "think-different", "SKILL.md");
+const SKILL_PATH = join(EXT_DIR, "skills", "think-different", "SKILL.md");
+const USER_CONFIG_PATH = join(EXT_DIR, "config.json");
+
+/** Project-level config, layered on top of the user config. */
+function projectConfigPath(cwd: string): string {
+	return join(cwd, ".pi", "think-different.json");
+}
 
 type ThinkMode = "off" | "sticky" | "once" | "auto";
 
@@ -57,6 +68,8 @@ interface ThinkState {
 	mode: ThinkMode;
 	paradigmId?: string;
 	intensity: Intensity;
+	placement: Placement;
+	language: Language;
 }
 
 const THINK_PARAMS = Type.Object({
@@ -85,16 +98,23 @@ function usageOf(message: AssistantMessage): ModelCallResult["usage"] {
 }
 
 export default function thinkDifferentExtension(pi: ExtensionAPI): void {
-	let state: ThinkState = { mode: "off", intensity: "standard" };
+	let state: ThinkState = { mode: "off", intensity: DEFAULT_CONFIG.intensity, placement: DEFAULT_CONFIG.placement, language: DEFAULT_CONFIG.language };
 	/** Free text supplied with `/think <paradigm> <task>`; injected on the next turn only. */
 	let pendingTask: string | undefined;
+	/** Config-file problems found at session start, reported once. */
+	let configProblems: { file: string; problem: string }[] = [];
+	/** The paradigm whose contract was injected this turn, if any. */
+	let injectedParadigm: Paradigm | undefined;
 
 	function describe(): string {
-		if (state.mode === "off") return "thinking paradigm: off (default Pi reasoning)";
-		if (state.mode === "auto") return `thinking paradigm: auto (heuristic per prompt), intensity ${state.intensity}`;
-		const paradigm = resolveParadigm(state.paradigmId);
-		const label = paradigm ? `${paradigm.emoji} ${paradigm.id} (${paradigm.titleZh})` : state.paradigmId ?? "unknown";
-		return `thinking paradigm: ${label}, intensity ${state.intensity}${state.mode === "once" ? " (next turn only)" : ""}`;
+		return describeState({
+			lang: state.language,
+			mode: state.mode,
+			paradigm: resolveParadigm(state.paradigmId),
+			paradigmId: state.paradigmId,
+			intensity: state.intensity,
+			placement: state.placement,
+		});
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
@@ -103,9 +123,7 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 			ctx.ui.setStatus(STATUS_KEY, undefined);
 			return;
 		}
-		const paradigm = resolveParadigm(state.paradigmId);
-		const short = state.mode === "auto" ? "🧠 auto" : `${paradigm?.emoji ?? "🧠"} ${paradigm?.id ?? state.paradigmId ?? "?"}`;
-		ctx.ui.setStatus(STATUS_KEY, state.intensity === "standard" ? short : `${short} · ${state.intensity}`);
+		ctx.ui.setStatus(STATUS_KEY, statusLabel({ lang: state.language, mode: state.mode, paradigm: resolveParadigm(state.paradigmId), paradigmId: state.paradigmId, intensity: state.intensity, placement: state.placement }));
 	}
 
 	function persist(): void {
@@ -123,10 +141,57 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 		return resolveParadigm(state.paradigmId);
 	}
 
+	/** Read the user config and the project config, and report what is wrong with them. */
+	function loadConfigLayers(cwd: string): ThinkConfig {
+		configProblems = [];
+		const userPath = USER_CONFIG_PATH;
+		const projectPath = projectConfigPath(cwd);
+		const layers: Partial<ThinkConfig>[] = [];
+
+		for (const file of [userPath, projectPath]) {
+			if (!existsSync(file)) continue;
+			try {
+				const report = parseConfigText(readFileSync(file, "utf8"));
+				layers.push(report.config);
+				for (const problem of report.problems) configProblems.push({ file, problem });
+			} catch (error) {
+				configProblems.push({ file, problem: error instanceof Error ? error.message : String(error) });
+			}
+		}
+
+		return mergeConfigs(layers);
+	}
+
+	/** Apply a config `startup` value: a paradigm id/alias, "auto", or "off". */
+	function applyStartup(startup: string): void {
+		const lower = startup.trim().toLowerCase();
+		if (lower === "off") {
+			state = { ...state, mode: "off" };
+			return;
+		}
+		if (lower === "auto") {
+			state = { ...state, mode: "auto" };
+			return;
+		}
+		const paradigm = resolveParadigm(startup);
+		if (paradigm) state = { ...state, mode: "sticky", paradigmId: paradigm.id };
+		else configProblems.push({ file: "startup", problem: `unknown paradigm '${startup}'` });
+	}
+
 	// ---------------------------------------------------------------- lifecycle
 
 	pi.on("session_start", async (_event, ctx) => {
 		const flag = pi.getFlag("think");
+		const config = loadConfigLayers(process.cwd());
+
+		state = {
+			mode: "off",
+			intensity: config.intensity,
+			placement: config.placement,
+			language: config.language,
+		};
+		applyStartup(config.startup);
+
 		const branch = ctx.sessionManager.getBranch();
 		let restored: ThinkState | undefined;
 
@@ -139,15 +204,27 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 		}
 
 		if (restored) {
-			state = { mode: restored.mode, paradigmId: restored.paradigmId, intensity: intensityFor(restored.intensity) };
+			state = {
+				mode: restored.mode,
+				paradigmId: restored.paradigmId,
+				intensity: intensityFor(restored.intensity, config.intensity),
+				placement: restored.placement ?? config.placement,
+				language: restored.language ?? config.language,
+			};
 		}
 
 		if (typeof flag === "string" && flag.trim().length > 0) {
 			const auto = flag.trim().toLowerCase() === "auto";
 			const paradigm = auto ? undefined : resolveParadigm(flag);
-			if (auto) state = { mode: "auto", intensity: state.intensity };
-			else if (paradigm) state = { mode: "sticky", paradigmId: paradigm.id, intensity: state.intensity };
-			else ctx.ui.notify(`Unknown --think value '${flag}'. Try: ${listParadigms().map((p) => p.id).join(", ")} | auto`, "warning");
+			if (auto) state = { ...state, mode: "auto" };
+			else if (paradigm) state = { ...state, mode: "sticky", paradigmId: paradigm.id };
+			else ctx.ui.notify(t(state.language, `Unknown --think value '${flag}'. Try: ${listParadigms().map((p) => p.id).join(", ")} | auto`, `未知的 --think 参数「${flag}」。可选：${listParadigms().map((p) => p.id).join(", ")} | auto`), "warning");
+		}
+
+		if (ctx.hasUI) {
+			for (const problem of configProblems) {
+				ctx.ui.notify(configProblemMessage(state.language, problem.file, problem.problem), "warning");
+			}
 		}
 
 		updateStatus(ctx);
@@ -174,8 +251,8 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 			const selection = selectParadigm(prompt);
 			paradigm = selection.paradigm;
 			origin = `auto: ${selection.score}`;
-			if (paradigm && ctx.hasUI) {
-				ctx.ui.notify(`auto thinking paradigm → ${paradigm.emoji} ${paradigm.id} (${selection.reasons.slice(0, 3).join("; ")})`, "info");
+		if (paradigm && ctx.hasUI) {
+				ctx.ui.notify(autoSelectionMessage(state.language, paradigm, selection.reasons), "info");
 			}
 		}
 
@@ -186,13 +263,45 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 
 		const task = pendingTask;
 		pendingTask = undefined;
-		event.systemPromptOptions.sections[SECTION_TAG] = renderSection(paradigm, state.intensity, origin, task);
+		injectedParadigm = paradigm;
+		event.systemPromptOptions.sections[SECTION_TAG] = renderSection(paradigm, state.intensity, state.placement, origin, task);
 
 		if (state.mode === "once") {
-			state = { mode: "off", intensity: state.intensity };
+			state = { ...state, mode: "off", paradigmId: undefined };
 			updateStatus(ctx);
 			persist();
 		}
+	});
+
+	// ------------------------------------------------------- structure placement
+
+	/**
+	 * Fallback for `placement: "thinking"`: if the model put the paradigm's structure in the
+	 * visible answer anyway, cut it out of the answer and hand it back as a thinking block, so the
+	 * answer the user reads carries only the conclusion.
+	 */
+	pi.on("message_end", async (event) => {
+		if (state.placement !== "thinking") return undefined;
+		const paradigm = injectedParadigm;
+		if (!paradigm) return undefined;
+
+		const message = event.message as AssistantMessage | undefined;
+		if (!message || message.role !== "assistant") return undefined;
+
+		const textBlocks = message.content.filter((block): block is TextContent => block.type === "text");
+		if (textBlocks.length === 0) return undefined;
+
+		const relocated = extractStructure(textBlocks.map((block) => block.text).join("\n\n"), paradigm);
+		if (!relocated.structure) return undefined;
+
+		const thinking: ThinkingContent = { type: "thinking", thinking: relocated.structure };
+		const rest = message.content.filter((block) => block.type !== "text");
+		return {
+			message: {
+				...message,
+				content: [thinking, { type: "text", text: relocated.text } as TextContent, ...rest],
+			},
+		};
 	});
 
 	// --------------------------------------------------------------- command
@@ -200,7 +309,7 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("think", {
 		description: "Switch the thinking paradigm: cot | tot | got | critique | hypothesis | hats | debate | first-principles | angles | auto | once | off | list",
 		getArgumentCompletions: (argumentPrefix) => {
-			const words = ["list", "status", "off", "auto", "once", "help", "light", "standard", "deep", ...listParadigms().map((p) => p.id)];
+			const words = ["list", "status", "off", "auto", "once", "help", "config", "lang", "placement", "light", "standard", "deep", ...listParadigms().map((p) => p.id)];
 			const prefix = argumentPrefix.trim().toLowerCase();
 			return words
 				.filter((word) => word.startsWith(prefix) || prefix.length === 0)
@@ -211,33 +320,43 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 			const parsed = parseThinkArgs(args);
 
 			if (parsed.unknown) {
-				ctx.ui.notify(`Unknown thinking paradigm '${parsed.unknown}'. Available: ${listParadigms().map((p) => p.id).join(", ")}`, "warning");
-				ctx.ui.notify(renderList(), "info");
+				ctx.ui.notify(unknownParadigmMessage(state.language, parsed.unknown), "warning");
+				ctx.ui.notify(renderList(state.language), "info");
 				return;
 			}
 
 			switch (parsed.action) {
 				case "help":
-					ctx.ui.notify(
-						[
-							"/think                       status (picker in interactive mode)",
-							"/think list                  catalogue",
-							"/think <paradigm> [intensity] [task]  sticky for this session",
-							"/think once <paradigm> [task]  next turn only",
-							"/think auto [intensity]      choose a paradigm per prompt",
-							"/think light|standard|deep   change intensity only",
-							"/think off                   disable",
-							"",
-							"Tool: think({task, paradigm, mode:'run'}) runs the paradigm as separate model calls.",
-						].join("\n"),
-						"info",
-					);
+					ctx.ui.notify(helpLines(state.language).join("\n"), "info");
 					return;
 				case "list":
-					ctx.ui.notify(renderList(), "info");
+					ctx.ui.notify(renderList(state.language), "info");
+					return;
+				case "config":
+					ctx.ui.notify(configPathsMessage(state.language, USER_CONFIG_PATH, projectConfigPath(process.cwd())), "info");
+					ctx.ui.notify(describe(), "info");
+					if (configProblems.length > 0) {
+						for (const problem of configProblems) ctx.ui.notify(configProblemMessage(state.language, problem.file, problem.problem), "warning");
+					}
+					return;
+				case "language":
+					if (!parsed.language) {
+						ctx.ui.notify(t(state.language, "Usage: /think lang en|zh", "用法：/think lang en|zh"), "warning");
+						return;
+					}
+					applyState({ ...state, language: parsed.language }, ctx);
+					ctx.ui.notify(describe(), "info");
+					return;
+				case "placement":
+					if (!parsed.placement) {
+						ctx.ui.notify(t(state.language, "Usage: /think placement answer|thinking", "用法：/think placement answer|thinking"), "warning");
+						return;
+					}
+					applyState({ ...state, placement: parsed.placement }, ctx);
+					ctx.ui.notify(describe(), "info");
 					return;
 				case "off":
-					applyState({ mode: "off", intensity: state.intensity }, ctx);
+					applyState({ ...state, mode: "off", paradigmId: undefined }, ctx);
 					ctx.ui.notify(describe(), "info");
 					return;
 				case "intensity":
@@ -245,16 +364,16 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 					ctx.ui.notify(describe(), "info");
 					return;
 				case "auto":
-					applyState({ mode: "auto", intensity: parsed.intensity ?? state.intensity }, ctx);
+					applyState({ ...state, mode: "auto", intensity: parsed.intensity ?? state.intensity }, ctx);
 					ctx.ui.notify(describe(), "info");
 					return;
 				case "once":
 					if (!parsed.paradigm) {
-						ctx.ui.notify("Usage: /think once <paradigm>", "warning");
+						ctx.ui.notify(t(state.language, "Usage: /think once <paradigm>", "用法：/think once <范式>"), "warning");
 						return;
 					}
 					pendingTask = parsed.task;
-					applyState({ mode: "once", paradigmId: parsed.paradigm.id, intensity: parsed.intensity ?? state.intensity }, ctx);
+					applyState({ ...state, mode: "once", paradigmId: parsed.paradigm.id, intensity: parsed.intensity ?? state.intensity }, ctx);
 					ctx.ui.notify(describe(), "info");
 					return;
 				case "set":
@@ -263,8 +382,8 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 						return;
 					}
 					pendingTask = parsed.task;
-					applyState({ mode: "sticky", paradigmId: parsed.paradigm.id, intensity: parsed.intensity ?? state.intensity }, ctx);
-					ctx.ui.notify(pendingTask ? `${describe()} - task set for the next turn` : describe(), "info");
+					applyState({ ...state, mode: "sticky", paradigmId: parsed.paradigm.id, intensity: parsed.intensity ?? state.intensity }, ctx);
+					ctx.ui.notify(pendingTask ? `${describe()} ${t(state.language, "- task set for the next turn", "· 已设定下一个回合的任务")}` : describe(), "info");
 					return;
 				case "status":
 				default:
@@ -275,34 +394,39 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 	});
 
 	async function showStatus(ctx: ExtensionCommandContext): Promise<void> {
+		const lang = state.language;
 		if (ctx.hasUI && ctx.mode === "tui") {
-			const options = [...listParadigms().map((p) => `${p.emoji} ${p.id} · ${p.titleZh}`), "🎯 auto (pick per prompt)", "⏹ off"];
-			const choice = await ctx.ui.select("Thinking paradigm", options);
+			const options = [
+				...listParadigms().map((p) => `${p.emoji} ${p.id} · ${lang === "zh" ? p.titleZh : p.title}`),
+				t(lang, "🎯 auto (pick per prompt)", "🎯 auto（每个提示词自动选）"),
+				t(lang, "⏹ off", "⏹ 关闭"),
+			];
+			const choice = await ctx.ui.select(t(lang, "Thinking paradigm", "思考范式"), options);
 			if (!choice) {
 				ctx.ui.notify(describe(), "info");
 				return;
 			}
 			if (choice.startsWith("⏹")) {
-				applyState({ mode: "off", intensity: state.intensity }, ctx);
+				applyState({ ...state, mode: "off", paradigmId: undefined }, ctx);
 				ctx.ui.notify(describe(), "info");
 				return;
 			}
 			if (choice.startsWith("🎯")) {
-				applyState({ mode: "auto", intensity: state.intensity }, ctx);
+				applyState({ ...state, mode: "auto" }, ctx);
 				ctx.ui.notify(describe(), "info");
 				return;
 			}
-			const id = choice.split(" ")[1];
-			const paradigm = resolveParadigm(id);
+			const pickedId = choice.split(" ")[1];
+			const paradigm = resolveParadigm(pickedId);
 			if (!paradigm) {
 				ctx.ui.notify(describe(), "info");
 				return;
 			}
-			applyState({ mode: "sticky", paradigmId: paradigm.id, intensity: state.intensity }, ctx);
+			applyState({ ...state, mode: "sticky", paradigmId: paradigm.id }, ctx);
 			ctx.ui.notify(describe(), "info");
 			return;
 		}
-		ctx.ui.notify(`${describe()}\n${renderList()}`, "info");
+		ctx.ui.notify(`${describe()}\n${renderList(lang)}`, "info");
 	}
 
 	// ----------------------------------------------------------------- tool
@@ -325,7 +449,7 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 			const intensity = intensityFor(params.intensity, state.intensity);
 
 			if (!params.task) {
-				return { content: [{ type: "text", text: renderList() }], details: { action: "list" } };
+				return { content: [{ type: "text", text: renderList(state.language) }], details: { action: "list" } };
 			}
 
 			if (params.paradigm) {
@@ -344,7 +468,7 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 				resolveParadigm(params.paradigm) ?? activeParadigm() ?? selection.paradigm ?? listParadigms().find((p) => p.id === "cot");
 
 			if (!paradigm) {
-				return { content: [{ type: "text", text: renderList() }], details: { action: "list" } };
+				return { content: [{ type: "text", text: renderList(state.language) }], details: { action: "list" } };
 			}
 
 			if (mode === "scaffold") {

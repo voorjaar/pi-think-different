@@ -1,0 +1,20 @@
+{
+	// Copy this file to config.json in the same folder to set your defaults.
+	// Project override: <repo>/.pi/think-different.json wins over config.json.
+
+	// What a session starts with: a paradigm id or alias, "auto", or "off".
+	// Examples: "tot", "六顶思考帽", "first-principles", "auto", "off".
+	"startup": "off",
+
+	// light | standard | deep
+	"intensity": "standard",
+
+	// "answer":   the paradigm's structure is shown in the visible answer.
+	// "thinking": the structure stays in the thinking block and the answer
+	//             carries only the conclusion.
+	"placement": "answer",
+
+	// en | zh - language used by /think menus, help, status, and notifications.
+	// "zh-cn", "chinese", and "中文" are accepted spellings too.
+	"language": "en"
+}

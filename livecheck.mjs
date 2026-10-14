@@ -14,6 +14,9 @@
  */
 
 import { spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import process from "node:process";
 
 import { resolveParadigm } from "./paradigms.ts";
@@ -41,6 +44,41 @@ const TOOL_CASE = {
 		"After the tool result, reply with one short paragraph stating the verdict. Do not read files.",
 };
 
+/**
+ * Option cases: these prove the config layer and the two new options end to end, by running Pi
+ * in a scratch directory that carries a `.pi/think-different.json`.
+ */
+const OPTION_CASES = [
+	{
+		paradigm: "lang:zh",
+		config: { language: "zh", startup: "tot" },
+		prompt: "Call the `think` tool exactly once with no task at all, so it returns the paradigm catalogue. Then reply with the single word 完成. Do not read files.",
+	},
+	{
+		paradigm: "lang:en",
+		config: { language: "en", startup: "tot" },
+		prompt: "Call the `think` tool exactly once with no task at all, so it returns the paradigm catalogue. Then reply with the single word done. Do not read files.",
+	},
+	{
+		paradigm: "startup:config",
+		config: { startup: "hats" },
+		prompt: "Should a 12-person engineering team adopt a strict no-meetings Wednesday? Decide after thinking it through.",
+	},
+	{
+		paradigm: "placement:thinking",
+		config: { startup: "tot", placement: "thinking" },
+		prompt: "A note-taking app needs offline support. Consider at least three genuinely different architectural approaches, score each, prune the weak ones, deepen the survivor, and pick a path. No code, no file reading.",
+	},
+];
+
+/** A scratch cwd whose project config is the one under test. */
+function scratchCwd(config) {
+	const dir = mkdtempSync(join(tmpdir(), "think-different-"));
+	mkdirSync(join(dir, ".pi"), { recursive: true });
+	writeFileSync(join(dir, ".pi", "think-different.json"), `${JSON.stringify(config, null, "\t")}\n`, "utf8");
+	return dir;
+}
+
 function collectAssistantText(records) {
 	const parts = [];
 	for (const record of records) {
@@ -52,6 +90,32 @@ function collectAssistantText(records) {
 		}
 	}
 	return parts.join("\n");
+}
+
+function collectAssistantThinking(records) {
+	const parts = [];
+	for (const record of records) {
+		if (record.type !== "message_end") continue;
+		const message = record.message;
+		if (!message || message.role !== "assistant") continue;
+		for (const block of message.content ?? []) {
+			if (block.type === "thinking" || block.type === "redacted_thinking") parts.push(block.thinking ?? "");
+		}
+	}
+	return parts.join("\n");
+}
+
+/** Text of the last assistant message only: what the user actually reads as the answer. */
+function collectFinalAnswerText(records) {
+	let last = "";
+	for (const record of records) {
+		if (record.type !== "message_end") continue;
+		const message = record.message;
+		if (!message || message.role !== "assistant") continue;
+		const text = (message.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join("\n");
+		if (text.trim().length > 0) last = text;
+	}
+	return last;
 }
 
 function collectToolCalls(records) {
@@ -80,9 +144,9 @@ function collectToolResults(records) {
 	return results.join("\n");
 }
 
-function runPi(args, timeoutMs) {
+function runPi(args, timeoutMs, cwd) {
 	return new Promise((resolve, reject) => {
-		const child = spawn("pi", args, { stdio: ["ignore", "pipe", "pipe"] });
+		const child = spawn("pi", args, { stdio: ["ignore", "pipe", "pipe"], cwd });
 		let stdout = "";
 		let stderr = "";
 		let settled = false;
@@ -156,6 +220,64 @@ async function checkParadigm(entry) {
 	return { id: paradigm.id, ok: true, detail: `${text.trim().length} chars, all ${paradigm.markers.length} markers present` };
 }
 
+async function checkOption(entry) {
+	const cwd = scratchCwd(entry.config);
+	const { records, stderr } = await runPi(["--mode", "json", "-p", entry.prompt], RUN_TIMEOUT_MS, cwd);
+	const extensionErrors = (stderr.match(/think-different[^\n]*/g) ?? []).filter((line) => /error|failed|throw/i.test(line));
+	if (extensionErrors.length > 0) return { id: entry.paradigm, ok: false, detail: `extension error: ${extensionErrors[0]}` };
+
+	const toolText = collectToolResults(records);
+	const answer = collectFinalAnswerText(records);
+	const allText = collectAssistantText(records);
+	const thinking = collectAssistantThinking(records);
+	const cjk = /[\u3400-\u4DBF\u4E00-\u9FFF]/;
+
+	if (entry.paradigm === "lang:zh" || entry.paradigm === "lang:en") {
+		const wantZh = entry.paradigm === "lang:zh";
+		if (!toolText.trim()) return { id: entry.paradigm, ok: false, detail: `think tool returned no catalogue (answer: ${answer.slice(0, 120)})` };
+		const hasChineseLabels = /适用|开销|别名/.test(toolText);
+		const hasEnglishLabels = /best for|cost:|aliases:/.test(toolText);
+		const catalogueHasCJK = cjk.test(toolText);
+		if (wantZh) {
+			if (!hasChineseLabels) return { id: entry.paradigm, ok: false, detail: `catalogue stayed English: ${toolText.slice(0, 200)}` };
+			if (hasEnglishLabels) return { id: entry.paradigm, ok: false, detail: `Chinese catalogue leaked English labels: ${toolText.slice(0, 200)}` };
+			return { id: entry.paradigm, ok: true, detail: `catalogue rendered in Chinese (${toolText.length} chars)` };
+		}
+		if (!hasEnglishLabels) return { id: entry.paradigm, ok: false, detail: `catalogue is not English: ${toolText.slice(0, 200)}` };
+		if (catalogueHasCJK) return { id: entry.paradigm, ok: false, detail: `English catalogue leaked Chinese: ${toolText.slice(0, 200)}` };
+		return { id: entry.paradigm, ok: true, detail: `catalogue rendered in English only (${toolText.length} chars)` };
+	}
+
+	if (entry.paradigm === "startup:config") {
+		const paradigm = resolveParadigm(entry.config.startup);
+		const missing = paradigm.markers.filter((marker) => !allText.includes(marker));
+		if (missing.length > 0) {
+			return { id: entry.paradigm, ok: false, detail: `config startup did not pin the paradigm; missing markers: ${missing.join(", ")} | answer ${allText.trim().length} chars | head: ${allText.slice(0, 240).replace(/\s+/g, " ")}` };
+		}
+		return { id: entry.paradigm, ok: true, detail: `.pi/think-different.json startup pinned ${paradigm.id} without any flag; ${paradigm.markers.length} markers present` };
+	}
+
+	// placement: "thinking"
+	const paradigm = resolveParadigm("tot");
+	const treeMarker = paradigm.markers[0];
+	if (answer.includes(treeMarker)) {
+		return { id: entry.paradigm, ok: false, detail: `visible answer still carries the structure: ${answer.slice(0, 300).replace(/\s+/g, " ")}` };
+	}
+	const structureEvidence = thinking.includes(treeMarker) || allText.includes(treeMarker);
+	const conclusionOnly = answer.trim().length >= 200;
+	if (!structureEvidence && !conclusionOnly) {
+		return { id: entry.paradigm, ok: false, detail: `no structure found anywhere and the answer is only ${answer.trim().length} chars` };
+	}
+	if (!conclusionOnly) {
+		return { id: entry.paradigm, ok: false, detail: `answer is ${answer.trim().length} chars; expected a conclusion, got: ${answer.slice(0, 200)}` };
+	}
+	return {
+		id: entry.paradigm,
+		ok: true,
+		detail: `answer carries no ${treeMarker}; structure ${structureEvidence ? "found in the thinking block" : "kept out of the answer"}, conclusion ${answer.trim().length} chars`,
+	};
+}
+
 async function checkToolRun() {
 	// The tool case chains nested model calls inside one Pi turn, so it needs more room than a single scaffolded answer.
 	const { records, stderr } = await runPi(["--mode", "json", "-p", TOOL_CASE.prompt], RUN_TIMEOUT_MS * 3);
@@ -177,7 +299,7 @@ async function checkToolRun() {
 async function main() {
 	const requested = process.argv.slice(2);
 	const wantTool = requested.includes("tool");
-	const wanted = requested.filter((name) => name !== "tool");
+	const wanted = requested.filter((name) => name !== "tool" && name !== "options");
 	const cases = requested.length === 0 ? LIVE_CASES : LIVE_CASES.filter((entry) => wanted.includes(entry.paradigm));
 	if (cases.length === 0 && !wantTool) {
 		console.error(`No such paradigm. Known: ${LIVE_CASES.map((entry) => entry.paradigm).join(", ")}`);
@@ -221,6 +343,12 @@ async function main() {
 	}
 
 	await pool(cases, checkParadigm);
+
+	const optionCases = requested.length === 0 || requested.includes("options") ? OPTION_CASES : [];
+	if (optionCases.length > 0) {
+		console.log("\noptions:");
+		await pool(optionCases, checkOption);
+	}
 
 	if (requested.length === 0 || wantTool) {
 		await pool([{ paradigm: "tool:run" }], checkToolRun);

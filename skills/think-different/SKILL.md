@@ -65,3 +65,11 @@ Rules that keep this useful:
   the extension choose per prompt with `/think auto`, or turn it off with `/think off`. Respect what the
   user pinned: if `/think` already set a paradigm, follow it rather than calling `think` for the same
   shape again.
+- Two session options change what the user sees, not how you reason: `/think lang en|zh` renders the
+  menus, catalogue, and status in one language at a time, and `/think placement answer|thinking` decides
+  whether the paradigm's structure appears in the visible answer or stays in the thinking block. With
+  `thinking` placement, keep branches, scores, and critiques out of the answer text and let the answer
+  carry the conclusion only.
+- Defaults live in `~/.pi/agent/extensions/pi-think-different/config.json` and `<repo>/.pi/think-different.json`
+  (`startup`, `intensity`, `placement`, `language`). `/think config` shows what is in play. Do not edit
+  those files unless the user asks you to.

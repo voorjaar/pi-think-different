@@ -52,6 +52,9 @@ cp -r pi-think-different ~/.pi/agent/extensions/
 /think tot design a cache    固定范式，同时点名要思考的具体问题
 /think auto                  每个提示词按启发式自动选范式
 /think deep                  提高当前范式的强度
+/think lang zh               菜单、帮助、状态改用中文（/think lang en 切回英文）
+/think placement thinking    结构留在思考区，回答只给结论
+/think config                查看当前生效的配置文件与取值
 /think off                   回到 Pi 默认推理
 ```
 
@@ -64,6 +67,37 @@ cp -r pi-think-different ~/.pi/agent/extensions/
 ```bash
 pi --mode json --think tot -p "Design offline support for a note app"
 ```
+
+## 配置
+
+默认值来自两个可选的 JSON 文件（后者覆盖前者），而会话里的 `/think` 又覆盖两者：
+
+```text
+~/.pi/agent/extensions/pi-think-different/config.json   个人默认
+<repo>/.pi/think-different.json                        项目覆盖
+```
+
+把 `config.example.jsonc` 复制成同目录下的 `config.json` 即可开始。支持注释（`//` 与 `/* */`）；某个取值不合法时会在会话启动时提示，文件其余部分照常生效。
+
+```jsonc
+{
+  "startup": "tot",        // 范式 id 或别名、"auto"、"off"
+  "intensity": "standard", // light | standard | deep
+  "placement": "thinking", // answer | thinking
+  "language": "zh"         // en | zh
+}
+```
+
+**`language`** 只改界面：`/think` 选择器、`/think list`、帮助、状态栏、提示消息都用这一种语言，不会中英同时出现。注入系统提示词的范式契约保持英文，因为那是给模型的指令；你自己的提示词仍然按你写的语言回答。
+
+**`placement`** 决定范式的细粒度结构落在哪里：
+
+| 取值 | 可见回答里包含 |
+| --- | --- |
+| `answer`（默认） | 分支、评分、批判、帽子——脚手架全部展示 |
+| `thinking` | 只有结论；结构留在思考区 |
+
+`thinking`  placement 有两道保障：契约要求模型把结构放在推理里；如果它还是写进了回答，harness 会把结构从回答里剪掉并重新挂成思考区内容。看不见的结构就无法核验，所以这是一次有意取舍，而不是单纯的美化。
 
 ### `think` 工具
 
@@ -106,16 +140,17 @@ Do not revive a pruned candidate unless you state the evidence that changes its 
 node --test selftest.ts
 ```
 
-36 个测试覆盖：注册表完整性与别名唯一性、每个范式的标记与契约一致性、提示词渲染与强度分层（包括 `/think <范式> <任务>` 带入的具体任务行）、`/think` 参数解析、自动选型（包括「琐碎提示词不挂范式」）、评分解析、外部剪枝，用脚本化假模型驱动的工作流引擎（步骤顺序、占位符填充、前序结果传递、各强度的候选宽度预算、输出上限、`only:` 局部重跑、失败传播），以及内置 skill 的位置。
+51 个测试覆盖：注册表完整性与别名唯一性、每个范式的标记与契约一致性、提示词渲染与强度分层（包括 `/think <范式> <任务>` 带入的具体任务行）、位置子句、`/think` 参数解析、配置校验与分层覆盖（语言拼写、容错注释、未知键、坏 JSON）、单语言的清单与状态文案、从标签式与标题式回答里提取结构、自动选型（包括「琐碎提示词不挂范式」）、评分解析、外部剪枝，用脚本化假模型驱动的工作流引擎（步骤顺序、占位符填充、前序结果传递、各强度的候选宽度预算、输出上限、`only:` 局部重跑、失败传播），以及内置 skill 的位置。
 
 端到端实跑检查（真实 Pi 会话，每次一个模型请求）：
 
 ```bash
-node livecheck.mjs            # 全部范式 + think 工具的 run 模式
-node livecheck.mjs tot hats   # 只跑子集
+node livecheck.mjs            # 全部范式 + 配置选项 + think 工具的 run 模式
+node livecheck.mjs tot hats   # 只跑范式子集
+node livecheck.mjs options    # 配置启动、语言、结构位置
 ```
 
-实跑检查会启动 `pi --mode json --think <范式> -p "<提示词>"`，如果回答里缺少该范式定义所依赖的任一标记就判定失败。每条判定在对应实跑结束后立刻输出；用例通过 3 个并发 Pi 会话的线程池执行（`LIVECHECK_CONCURRENCY=1..4`），单次实跑超时由 `LIVECHECK_TIMEOUT_MS` 控制（默认 420000 毫秒），超时后重试一次。传入 `tool` 参数则只跑 `think` 工具的用例。
+范式检查会启动 `pi --mode json --think <范式> -p "<提示词>"`，如果回答里缺少该范式定义所依赖的任一标记就判定失败。选项检查在一个临时目录里跑 Pi，该目录的 `.pi/think-different.json` 设定待验选项，然后断言用户真正会看到的东西：清单用哪种语言、配置的 `startup` 能否不用任何 flag 就固定范式、`thinking` 位置是否把结构留在可见回答之外。每条判定在对应实跑结束后立刻输出；用例通过 3 个并发 Pi 会话的线程池执行（`LIVECHECK_CONCURRENCY=1..4`），单次实跑超时由 `LIVECHECK_TIMEOUT_MS` 控制（默认 420000 毫秒），超时后重试一次。传入 `tool` 参数则只跑 `think` 工具的用例。
 
 每个注入的契约都会逐字列出它要求的标记，并明确禁止用标题、加粗、emoji 或一整段代码围栏替代标签。模型遵守这一纪律；退化成普通散文的范式会直接报错，而不是蒙混过关。
 
@@ -128,13 +163,17 @@ npm run check                # 单元测试 + 实跑检查
 
 ```text
 pi-think-different/
-├── index.ts            # Pi 接线：命令、工具、CLI flag、提示词注入、会话状态
+├── index.ts            # Pi 接线：命令、工具、CLI flag、提示词注入、配置加载、会话状态
 ├── paradigms.ts        # 范式注册表：契约、标记、工作流步骤（纯函数）
 ├── render.ts           # 提示词段落渲染 + /think 参数解析（纯函数）
+├── config.ts           # 配置 schema、校验、分层覆盖、容错解析（纯函数）
+├── ui.ts               # 所有人类可见文案，一次只用一种语言（纯函数）
+├── placement.ts        # 结构位置：提示词子句 + 从回答里提取结构（纯函数）
 ├── autoSelect.ts       # 启发式范式选型（纯函数）
 ├── workflow.ts         # 带外部评分门控的多遍引擎（纯函数，模型调用可注入）
 ├── selftest.ts         # 单元测试
 ├── livecheck.mjs       # 针对真实 Pi 会话的端到端检查
+├── config.example.jsonc # 复制成 config.json 即可设定默认值
 ├── ROADMAP.zh-CN.md    # 「正常工作」的判定标准，以及下一步计划
 └── skills/think-different/SKILL.md
 ```
