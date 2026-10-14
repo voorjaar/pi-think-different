@@ -4,6 +4,8 @@
 
 一个 [Pi](https://github.com/earendil-works/pi) 扩展，用来切换 agent 的思考范式。它内置九种思考方式（见[范式](#范式)一节），每种都有两套用法——作为注入系统提示词的契约，覆盖整个会话；或者作为 harness 驱动的多轮工作流，处理单个问题。
 
+![一个正在用六顶思考帽回答「要不要把每晚的 cron 换成队列加 worker」的 Pi 会话：六个段落分别由固定的帽子 emoji 开头（白、红、黑、黄、绿、蓝），后面是无标签的结论，再下面是 /think hats 命令行与 hats 状态栏。](https://raw.githubusercontent.com/voorjaar/pi-think-different/main/assets/preview.png)
+
 ## 特性
 
 - 九个范式（见[范式](#范式)一节），每个都同时有提示词契约和多轮工作流两套实现。

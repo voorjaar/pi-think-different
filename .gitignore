@@ -3,4 +3,5 @@ node_modules/
 .pi/
 *.log
 .memory/
+tools/
 node_modules

@@ -4,6 +4,8 @@
 
 A [Pi](https://github.com/earendil-works/pi) extension that switches the agent's thinking paradigm. It ships with nine built-in paradigms (listed under [Paradigms](#paradigms)), each available two ways - as a contract injected into the system prompt for the whole session, or as a harness-driven multi-pass workflow for a single question.
 
+![A Pi session running the six thinking hats on the question "should we replace our nightly cron jobs with a queue and workers?": six sections marked by the fixed hat emoji (white, red, black, yellow, green, blue), then the conclusion with no label, then the /think hats command line and the hats status line.](https://raw.githubusercontent.com/voorjaar/pi-think-different/main/assets/preview.png)
+
 ## Features
 
 - Nine paradigms (listed under [Paradigms](#paradigms)), each with a prompt contract and a multi-pass workflow.

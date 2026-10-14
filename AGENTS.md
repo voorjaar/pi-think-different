@@ -41,6 +41,11 @@ src/              index.ts (all Pi wiring) + the pure modules
 tests/            selftest.ts (unit) · livecheck.mjs (real Pi runs) · run-livecheck.sh
 examples/         config.example.jsonc · agent-config.example.jsonc · headless.sh
 skills/           think-different/SKILL.md (bundled, discovered through resources_discover)
+assets/           preview.png - the gallery image, referenced by both READMEs and by pi.image through its
+                  GitHub raw URL (kept out of package.json "files": a relative path would break in the
+                  package gallery, which renders the README from the npm tarball)
+tools/            local-only screenshot helpers (uv + Pillow) that build assets/preview.png; gitignored,
+                  so neither they nor the image's source screenshot is ever published
 .memory/          project memory notes (local to this checkout, gitignored)
 docs              README.md README.zh-CN.md ROADMAP.md ROADMAP.zh-CN.md AGENTS.md
 ```

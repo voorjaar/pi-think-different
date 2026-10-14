@@ -39,7 +39,8 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/voorjaar/pi-think-different/main/assets/preview.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
