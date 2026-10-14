@@ -64,6 +64,19 @@ No build step: Pi loads TypeScript directly. No dependencies beyond Pi itself.
 /think off                   back to default Pi reasoning
 ```
 
+You do not have to name the paradigm as a token. If the arguments are prose, the text is scanned for
+a paradigm cue and whatever is left becomes the task:
+
+```text
+/think 以六顶思考帽的方式思考俄乌战争的结果      → hats, task 俄乌战争的结果
+/think rethink our polling from first principles  → first-principles, task rethink our polling
+/think 用思维树和六顶思考帽分析这个迁移          → ambiguous: it names two paradigms, so it asks
+```
+
+Cues are the registry's own vocabulary (`id`, aliases, titles, plus a `cues` list per paradigm),
+longest match wins, and Latin cues need a word boundary - `treewidth` does not select `tot`. When two
+different paradigms match, `/think` refuses to guess and asks you to name one.
+
 Free text after the paradigm is kept as the concrete task and injected as "Concrete task for this
 turn", so `/think tot design a cache` both pins the paradigm and points it at the problem.
 
@@ -161,32 +174,34 @@ Unit tests (no model, no network):
 node --test selftest.ts
 ```
 
-51 tests covering: registry integrity and alias uniqueness, marker/contract consistency for every
+62 tests covering: registry integrity and alias uniqueness, marker/contract consistency for every
 paradigm, prompt rendering and intensity layering (including the concrete-task line from
-`/think <paradigm> <task>`), placement clauses, `/think` argument parsing, config validation and
-layering (language spellings, comment-tolerant parsing, unknown keys, malformed JSON), single-language
-catalogue and status rendering, structure extraction from tagged and heading-form answers,
-auto-selection (including "trivial prompts get no paradigm"), score extraction, external pruning, and
-the workflow engine against a scripted fake model (step order, placeholder filling, prior-step
-threading, harness branch budgets per intensity, output caps, `only:` reruns, failure propagation),
-and the location of the bundled skill.
+`/think <paradigm> <task>`), placement clauses, `/think` argument parsing - explicit tokens and
+prose cue matching - config validation and layering (language spellings, comment-tolerant parsing,
+unknown keys, malformed JSON), single-language catalogue and status rendering, structure extraction
+from tagged and heading-form answers, auto-selection (including "trivial prompts get no paradigm"),
+score extraction, external pruning, and the workflow engine against a scripted fake model (step order,
+placeholder filling, prior-step threading, harness branch budgets per intensity, output caps, `only:`
+reruns, failure propagation), and the location of the bundled skill.
 
 Live end-to-end checks (real Pi runs, one model request each):
 
 ```bash
 node livecheck.mjs            # every paradigm + config options + the think tool in run mode
 node livecheck.mjs tot hats   # paradigm subset only
-node livecheck.mjs options    # config-driven startup, language, and placement
+node livecheck.mjs options    # config startup, language, placement, and prose /think
 ```
 
 A paradigm check spawns `pi --mode json --think <paradigm> -p "<prompt>"` and fails if the answer is
 missing any marker that paradigm is defined by. Option checks run Pi inside a scratch directory whose
 `.pi/think-different.json` sets the option under test, and assert what the user would actually see:
 the catalogue language, whether a config `startup` pins a paradigm without any flag, and whether a
-`thinking` placement leaves the structure out of the visible answer. Verdicts stream in as each run
-finishes; cases run through a pool of 3 concurrent Pi sessions (`LIVECHECK_CONCURRENCY=1..4`), each
-allowed `LIVECHECK_TIMEOUT_MS` milliseconds (default 420000) before it is retried once. Pass `tool` as
-an argument to run only the `think`-tool case.
+`thinking` placement leaves the structure out of the visible answer. The prose case drives Pi in RPC
+mode - print mode does not expand slash commands - sends `/think 以六顶思考帽的方式思考俄乌战争的结果`,
+requires the command response `disposition: "handled"`, and then requires the next turn to carry the
+`six hats` markers. Verdicts stream in as each run finishes; cases run through a pool of 3 concurrent
+Pi sessions (`LIVECHECK_CONCURRENCY=1..4`), each allowed `LIVECHECK_TIMEOUT_MS` milliseconds (default
+420000) before it is retried once. Pass `tool` as an argument to run only the `think`-tool case.
 
 Every injected contract states its markers verbatim and forbids substituting a heading, bold label,
 emoji, or a single code fence for a tag. Models follow that discipline; a paradigm that degrades into
@@ -204,6 +219,7 @@ pi-think-different/
 ├── index.ts            # Pi wiring: command, tool, flag, prompt injection, config load, session state
 ├── paradigms.ts        # paradigm registry: contracts, markers, workflow steps (pure)
 ├── render.ts           # prompt section rendering + /think argument parsing (pure)
+├── nlmatch.ts          # paradigm cues in prose -> paradigm + task (pure)
 ├── config.ts           # config schema, validation, layering, comment-tolerant parsing (pure)
 ├── ui.ts               # every human-facing string, in one language at a time (pure)
 ├── placement.ts        # structure placement: prompt clause + answer extraction (pure)

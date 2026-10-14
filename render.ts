@@ -3,7 +3,8 @@
  * Pure functions: no Pi imports.
  */
 
-import { isIntensity, resolveParadigm, type Intensity, type Paradigm } from "./paradigms.ts";
+import { isIntensity, listParadigms, resolveParadigm, type Intensity, type Paradigm } from "./paradigms.ts";
+import { matchCues, taskAfterCue } from "./nlmatch.ts";
 import { isPlacement, type Language, type Placement } from "./config.ts";
 import { placementClause } from "./placement.ts";
 
@@ -71,6 +72,10 @@ export interface ThinkArgs {
 	task?: string;
 	/** True when a paradigm token was present but unknown. */
 	unknown?: string;
+	/** Set when prose matched more than one paradigm; the caller should ask, not guess. */
+	ambiguous?: { id: string; cue: string }[];
+	/** Set when the paradigm came from prose rather than an explicit token. */
+	viaCue?: string;
 }
 
 /**
@@ -129,6 +134,27 @@ export function parseThinkArgs(raw: string): ThinkArgs {
 	// First remaining token is the paradigm candidate; anything after it is free text.
 	const candidate = rest.length > 0 ? rest[0] : undefined;
 	const resolved = candidate ? resolveParadigm(candidate) : undefined;
+
+	if (!resolved && (action === "set" || action === "once") && rest.length > 0) {
+		// No explicit token: read the phrase as prose and look for a paradigm cue in it.
+		const prose = rest.join(" ");
+		const outcome = matchCues(prose, listParadigms());
+
+		if (outcome.ambiguous) {
+			return { action, ambiguous: outcome.matches.map((match) => ({ id: match.paradigm.id, cue: match.cue })), intensity };
+		}
+		const match = outcome.matches[0];
+		if (match) {
+			return {
+				action,
+				paradigmName: match.paradigm.id,
+				paradigm: match.paradigm,
+				intensity,
+				task: taskAfterCue(prose, match),
+				viaCue: match.cue,
+			};
+		}
+	}
 
 	if (candidate && !resolved && (action === "set" || action === "once")) {
 		return { action, unknown: candidate, intensity };

@@ -37,6 +37,11 @@ export interface Paradigm {
 	titleZh: string;
 	emoji: string;
 	aliases: string[];
+	/**
+	 * Phrases users actually write when they mean this paradigm. Used by
+	 * `nlmatch.ts` so `/think 以六顶思考帽的方式思考…` resolves without an explicit token.
+	 */
+	cues?: string[];
 	/** One-line summary shown in `/think list` and the picker. */
 	summary: string;
 	summaryZh: string;
@@ -85,6 +90,7 @@ export const PARADIGMS: Paradigm[] = [
 		titleZh: "思维链",
 		emoji: "🧠",
 		aliases: ["chain", "chain-of-thought", "思维链"],
+		cues: ["逐步思考", "一步一步", "拆开推理", "展开推理", "show your reasoning", "chain of reasoning", "step by step reasoning"],
 		summary: "Explicit premises, decomposition, and self-checks before the answer.",
 		summaryZh: "先列出前提、拆解问题、自检，然后才给答案。",
 		bestFor: "General hard questions, calculations, anything where a silent wrong answer is expensive.",
@@ -131,6 +137,7 @@ The conclusion, written so it stands on its own without the reasoning block.
 		titleZh: "思维树",
 		emoji: "🌳",
 		aliases: ["tree", "tree-of-thoughts", "思维树", "bfs", "dfs"],
+		cues: ["思维树", "分叉探索", "多方案比较", "比较几种方案", "几条路线分别", "tree of thoughts", "branch and score", "explore alternatives"],
 		summary: "Branch several distinct approaches, score them, prune, backtrack.",
 		summaryZh: "分出多条真正不同的路线，打分、剪枝、回溯。",
 		bestFor: "Design choices, algorithms, planning, anything with more than one viable route.",
@@ -190,6 +197,7 @@ Rules: at most {{branches}} first-level branches, at most {{depth}} levels deep.
 		titleZh: "思维网",
 		emoji: "🕸️",
 		aliases: ["graph", "graph-of-thoughts", "思维网", "merge"],
+		cues: ["思维图", "思维网络", "节点合并", "交叉校验", "graph of thoughts", "merge nodes", "cross-validate"],
 		summary: "Independent nodes, then merge, cross-check, and refine them.",
 		summaryZh: "先生成互相独立的节点，再合并、交叉校验、精炼。",
 		bestFor: "Multi-module work: integrating parts, cross-validating sources, combining designs.",
@@ -242,6 +250,7 @@ The merged result.
 		titleZh: "自我批判修正",
 		emoji: "🔍",
 		aliases: ["self-critique", "self-correction", "critic", "自我修正", "自我批判", "红队"],
+		cues: ["自我批判", "自我批评", "挑毛病", "找问题", "再审一遍", "self critique", "critique my", "attack your own"],
 		summary: "Draft, attack your own draft hardest, then rebuild it.",
 		summaryZh: "先起草，再最狠地攻击自己的草稿，然后重建。",
 		bestFor: "Code you are about to ship, calculations, claims, prose logic.",
@@ -296,6 +305,7 @@ The final version only.
 		titleZh: "假设排他法",
 		emoji: "🧪",
 		aliases: ["elimination", "hypotheses", "diagnose", "debug", "排查", "假设", "归因", "定位"],
+		cues: ["假设排除", "列出可能原因", "逐一排除", "可能的原因", "根因分析", "hypothesis and elimination", "rule out causes", "root cause analysis"],
 		summary: "Enumerate falsifiable causes, eliminate them with evidence.",
 		summaryZh: "列出可证伪的候选原因，用证据逐个排除。",
 		bestFor: "Bugs, outages, flaky tests, 'why is this happening at all'.",
@@ -348,6 +358,7 @@ The surviving cause, the confidence level, and the single cheapest next check th
 		titleZh: "六顶思考帽",
 		emoji: "🎩",
 		aliases: ["six-hats", "de-bono", "六顶思考帽", "思考帽", "帽子"],
+		cues: ["六顶思考帽", "六顶帽子", "六个帽子", "德博诺", "six thinking hats", "six hats", "de bono"],
 		summary: "Six separate lenses: facts, feeling, risk, value, alternatives, decision.",
 		summaryZh: "六个独立的视角：事实、直觉、风险、价值、替代方案、决策。",
 		bestFor: "Decisions, proposals, adoption calls, product and process trade-offs.",
@@ -393,6 +404,7 @@ The decision and the next actions.
 		titleZh: "正反辩论",
 		emoji: "⚔️",
 		aliases: ["dialectic", "red-team", "steelman", "devil", "辩论", "反驳", "抬杠"],
+		cues: ["正反两面", "正方反方", "对抗性论证", "钢人论证", "最强反驳", "steelman", "debate both sides", "devil's advocate"],
 		summary: "Advocate, hardest critic, rebuttal, then a judge's verdict.",
 		summaryZh: "正方、最狠的反方、反驳，然后裁判给出判决。",
 		bestFor: "Contested calls where one side is already loaded in the conversation.",
@@ -436,6 +448,7 @@ The judged conclusion, stated with its residual uncertainty.
 		titleZh: "第一性原理",
 		emoji: "⚛️",
 		aliases: ["first-principle", "axioms", "decompose", "第一性原理", "本质", "从零推"],
+		cues: ["第一性原理", "从本质出发", "抛开惯例", "回到约束", "first principles", "from first principles", "strip the conventions"],
 		summary: "Strip conventions, list the real constraints, rebuild from them.",
 		summaryZh: "剥掉惯例，列出真实约束，从约束重新构建。",
 		bestFor: "When 'everyone does it this way' is the only reason for the current design.",
@@ -475,6 +488,7 @@ The rebuilt approach, with the unverified assumptions called out.
 		titleZh: "多角度扫描",
 		emoji: "📐",
 		aliases: ["multi-angle", "perspectives", "多角度", "多视角", "换个角度"],
+		cues: ["几个不同角度", "不同角度", "换个角度看", "多个视角", "multiple angles", "several angles", "different perspectives"],
 		summary: "Three orthogonal angles - mechanism, adversary, cost - then synthesis.",
 		summaryZh: "三个互相正交的角度——机制、对手、成本——然后综合。",
 		bestFor: "Reviewing code or a plan you wrote and are already attached to.",

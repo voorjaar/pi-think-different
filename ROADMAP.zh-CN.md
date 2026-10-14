@@ -4,7 +4,7 @@
 
 `pi-think-different` 是什么、不是什么，以及接下来做什么。
 
-## 当前状态（v0.2.0）
+## 当前状态（v0.4.0）
 
 每个范式都有两层可用的实现：
 
@@ -18,8 +18,14 @@
 启动真实 `pi --mode json` 会话、缺标记即失败的实跑检查。
 
 已交付的控制方式：`/think`（状态/选择器）、`list`、`off`、`auto`、`once`、`<范式>`、`[强度]`、
-`[任务]`；`--think <范式>` 启动参数；`light | standard | deep` 三档强度；状态栏指示；跨重启与会话
+`[任务]`；自然语言参数（`/think 以六顶思考帽的方式思考俄乌战争的结果` 能从措辞里认出范式，剩下的当任务，
+同时命中两个范式时不猜、反问）；`--think <范式>` 启动参数；`light | standard | deep` 三档强度；
+`lang en|zh` 界面语言；`placement answer|thinking` 结构位置；`config` 展示当前生效的分层配置
+（`config.json` < `.pi/think-different.json` < flag < `/think`）；状态栏指示；跨重启与会话
 分支的状态持久化；随扩展分发的 skill。
+
+实跑检查覆盖用户能走到的三条接线：`--think`（print 模式）、`think` 工具、以及 `/think` 命令——最后一条
+走 RPC 模式，因为 print 模式不展开斜杠命令。
 
 ## 「正常工作」的判定标准
 

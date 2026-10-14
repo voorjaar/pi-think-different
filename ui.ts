@@ -121,6 +121,18 @@ export function unknownParadigmMessage(lang: Language, name: string): string {
 	return t(lang, `Unknown thinking paradigm '${name}'. Available: ${known}`, `未知的思考范式「${name}」。可选：${known}`);
 }
 
+export function cueResolvedMessage(lang: Language, paradigm: Paradigm, cue: string): string {
+	return t(lang, `matched paradigm from your wording: '${cue}' → ${paradigm.id}`, `从你的措辞识别出范式：「${cue}」→ ${paradigm.id}`);
+}
+
+export function ambiguousCueMessage(lang: Language, candidates: { id: string; cue: string }[]): string {
+	const listed = candidates.map((candidate) => `${candidate.cue}→${candidate.id}`).join(", ");
+	return t(
+		lang,
+		`Your wording matches more than one paradigm (${listed}). Name one explicitly: /think <paradigm> <task>`,
+		`你的措辞同时命中多个范式（${listed}）。请明确指定一个：/think <范式> <任务>`,
+	);
+}
 export function autoSelectionMessage(lang: Language, paradigm: Paradigm, reasons: string[]): string {
 	return t(lang, `auto thinking paradigm → ${paradigm.id}`, `自动选择思考范式 → ${paradigm.id}`) + (reasons.length > 0 ? ` (${reasons.slice(0, 3).join("; ")})` : "");
 }

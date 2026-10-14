@@ -43,7 +43,7 @@ import { DEFAULT_CONFIG, mergeConfigs, parseConfigText, type Language, type Plac
 import { extractStructure } from "./placement.ts";
 import { listParadigms, resolveParadigm, type Intensity, type Paradigm, type ParadigmStep } from "./paradigms.ts";
 import { intensityFor, parseThinkArgs, renderSection, renderScaffoldForTask, SECTION_TAG } from "./render.ts";
-import { autoSelectionMessage, configPathsMessage, configProblemMessage, describeState, helpLines, paradigmName, renderList, statusLabel, t, unknownParadigmMessage } from "./ui.ts";
+import { autoSelectionMessage, ambiguousCueMessage, configPathsMessage, configProblemMessage, cueResolvedMessage, describeState, helpLines, paradigmName, renderList, statusLabel, t, unknownParadigmMessage } from "./ui.ts";
 import { renderWorkflowResult, runWorkflow, type ModelCallResult } from "./workflow.ts";
 
 const ENTRY_TYPE = "think-different";
@@ -325,6 +325,11 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 				return;
 			}
 
+			if (parsed.ambiguous) {
+				ctx.ui.notify(ambiguousCueMessage(state.language, parsed.ambiguous), "warning");
+				return;
+			}
+
 			switch (parsed.action) {
 				case "help":
 					ctx.ui.notify(helpLines(state.language).join("\n"), "info");
@@ -374,6 +379,7 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 					}
 					pendingTask = parsed.task;
 					applyState({ ...state, mode: "once", paradigmId: parsed.paradigm.id, intensity: parsed.intensity ?? state.intensity }, ctx);
+					if (parsed.viaCue) ctx.ui.notify(cueResolvedMessage(state.language, parsed.paradigm, parsed.viaCue), "info");
 					ctx.ui.notify(describe(), "info");
 					return;
 				case "set":
@@ -383,6 +389,7 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 					}
 					pendingTask = parsed.task;
 					applyState({ ...state, mode: "sticky", paradigmId: parsed.paradigm.id, intensity: parsed.intensity ?? state.intensity }, ctx);
+					if (parsed.viaCue) ctx.ui.notify(cueResolvedMessage(state.language, parsed.paradigm, parsed.viaCue), "info");
 					ctx.ui.notify(pendingTask ? `${describe()} ${t(state.language, "- task set for the next turn", "· 已设定下一个回合的任务")}` : describe(), "info");
 					return;
 				case "status":

@@ -4,7 +4,7 @@
 
 What `pi-think-different` is, what it is not, and what gets built next.
 
-## Where it stands (v0.2.0)
+## Where it stands (v0.4.0)
 
 Two working layers per paradigm:
 
@@ -18,8 +18,16 @@ Nine paradigms shipped: `cot`, `tot`, `got`, `critique`, `hypothesis`, `hats`, `
 markers, and a live check that runs a real `pi --mode json` session and fails if a marker is missing.
 
 Controls shipped: `/think` (status/picker), `list`, `off`, `auto`, `once`, `<paradigm>`,
-`[intensity]`, `[task]`; `--think <paradigm>` CLI flag; `light | standard | deep` intensities;
-status-line indicator; session persistence across restarts and session trees; contributed skill.
+`[intensity]`, `[task]`; prose arguments (`/think 以六顶思考帽的方式思考俄乌战争的结果` resolves the
+paradigm from its cue and keeps the rest as the task, and refuses to guess when two paradigms match);
+`--think <paradigm>` CLI flag; `light | standard | deep` intensities; `lang en|zh` for the interface
+language; `placement answer|thinking` for where the structure lives; `config` to show the layered
+config in play (`config.json` < `.pi/think-different.json` < flag < `/think`); status-line indicator;
+session persistence across restarts and session trees; contributed skill.
+
+Live checks cover all three wiring paths a user can reach: `--think` (print mode), the `think` tool,
+and the `/think` command - the last one through RPC mode, because print mode does not expand slash
+commands.
 
 ## Definition of "works"
 

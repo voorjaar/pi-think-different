@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { selectParadigm } from "./autoSelect.ts";
 import { listParadigms, PARADIGMS, resolveParadigm } from "./paradigms.ts";
 import { intensityFor, parseThinkArgs, renderBody, renderSection, SECTION_TAG } from "./render.ts";
+import { cueVocabulary, matchCues, taskAfterCue } from "./nlmatch.ts";
 import { DEFAULT_CONFIG, mergeConfigs, parseConfig, parseConfigText, stripJsonComments } from "./config.ts";
 import { extractStructure, placementClause } from "./placement.ts";
 import { describeState, helpLines, renderList } from "./ui.ts";
@@ -652,4 +653,96 @@ test("placement: parseThinkArgs takes lang, placement, and config", () => {
 	assert.equal(placed.action, "placement");
 	assert.equal(placed.placement, "thinking");
 	assert.equal(parseThinkArgs("config").action, "config");
+});
+
+// ---------------------------------------------------------------- natural language /think
+
+test("nlmatch: prose resolves the paradigm and keeps the rest as the task", () => {
+	const parsed = parseThinkArgs("以六顶思考帽的方式思考俄乌战争的结果");
+	assert.equal(parsed.action, "set");
+	assert.equal(parsed.paradigm?.id, "hats", "prose did not resolve to hats");
+	assert.equal(parsed.task, "俄乌战争的结果", `task extraction wrong: ${JSON.stringify(parsed.task)}`);
+	assert.equal(parsed.unknown, undefined);
+	assert.ok(parsed.viaCue, "no cue recorded");
+});
+
+test("nlmatch: English prose resolves too", () => {
+	const cases: [string, string, string][] = [
+		["think about the outcome using six thinking hats", "hats", "think about the outcome using"],
+		["rethink our polling from first principles", "first-principles", "rethink our polling"],
+		["look at this plan from multiple angles", "angles", "look at this plan from"],
+		["rule out causes for the flaky test", "hypothesis", "for the flaky test"],
+	];
+	for (const [text, expected, taskNeedle] of cases) {
+		const parsed = parseThinkArgs(text);
+		assert.equal(parsed.paradigm?.id, expected, `${text} -> ${parsed.paradigm?.id ?? parsed.unknown}`);
+		assert.ok(parsed.task?.includes(taskNeedle), `${text}: task extraction lost ${taskNeedle} (got ${JSON.stringify(parsed.task)})`);
+	}
+});
+
+test("nlmatch: an explicit paradigm token always wins over prose", () => {
+	const parsed = parseThinkArgs("tot 讨论六顶思考帽的优缺点");
+	assert.equal(parsed.paradigm?.id, "tot");
+	assert.equal(parsed.viaCue, undefined);
+	assert.ok(parsed.task?.includes("六顶思考帽"), `task should keep the prose: ${JSON.stringify(parsed.task)}`);
+});
+
+test("nlmatch: two paradigms in one sentence is ambiguous, not guessed", () => {
+	const parsed = parseThinkArgs("用思维树和六顶思考帽分析俄乌战争的结果");
+	assert.equal(parsed.paradigm, undefined);
+	assert.ok(parsed.ambiguous, "ambiguity not reported");
+	const ids = (parsed.ambiguous ?? []).map((entry) => entry.id).sort((a, b) => a.localeCompare(b));
+	assert.deepEqual(ids, ["hats", "tot"]);
+});
+
+test("nlmatch: no cue falls back to the unknown-paradigm warning", () => {
+	const parsed = parseThinkArgs("以某种玄学方式思考这件事");
+	assert.equal(parsed.paradigm, undefined);
+	assert.equal(parsed.ambiguous, undefined);
+	assert.equal(parsed.unknown, "以某种玄学方式思考这件事");
+});
+
+test("nlmatch: cues need a word boundary in Latin text", () => {
+	// "treewidth" contains the alias "tree" but is not a mention of Tree of Thoughts.
+	const parsed = parseThinkArgs("tune the treewidth parameter");
+	assert.equal(parsed.paradigm, undefined, `matched ${parsed.paradigm?.id} inside a word`);
+	assert.notEqual(parsed.unknown, undefined);
+});
+
+test("nlmatch: once accepts prose as well", () => {
+	const parsed = parseThinkArgs("once 用第一性原理重新设计我们的轮询");
+	assert.equal(parsed.action, "once");
+	assert.equal(parsed.paradigm?.id, "first-principles");
+	assert.equal(parsed.task, "重新设计我们的轮询", `task: ${JSON.stringify(parsed.task)}`);
+});
+
+test("nlmatch: intensity and mode keywords still parse around prose", () => {
+	const parsed = parseThinkArgs("deep 用多角度评估这个方案");
+	assert.equal(parsed.paradigm?.id, "angles");
+	assert.equal(parsed.intensity, "deep");
+});
+
+test("nlmatch: every cue belongs to a real paradigm and is long enough to be specific", () => {
+	for (const paradigm of PARADIGMS) {
+		for (const cue of cueVocabulary(paradigm)) {
+			assert.ok(cue.length >= 2, `${paradigm.id}: cue too short: ${cue}`);
+			assert.ok(!/\s{2,}/.test(cue), `${paradigm.id}: cue has odd whitespace: ${cue}`);
+			// Every phrase in the vocabulary must resolve back to the paradigm that owns it.
+			const outcome = matchCues(`prefix ${cue} suffix`, PARADIGMS);
+			assert.ok(outcome.matches.some((match) => match.paradigm.id === paradigm.id), `${paradigm.id}: cue '${cue}' does not resolve back to it`);
+		}
+		assert.ok((paradigm.cues ?? []).length > 0, `${paradigm.id}: no cues defined`);
+	}
+});
+
+test("nlmatch: taskAfterCue strips the scaffolding around the cue", () => {
+	const outcome = matchCues("帮我用六顶思考帽的方式评估一下这个并购", PARADIGMS);
+	const match = outcome.matches.find((entry) => entry.paradigm.id === "hats")!;
+	assert.equal(taskAfterCue("帮我用六顶思考帽的方式评估一下这个并购", match), "这个并购");
+});
+
+test("nlmatch: a bare paradigm name is not reported as a task", () => {
+	const parsed = parseThinkArgs("用六顶思考帽");
+	assert.equal(parsed.paradigm?.id, "hats");
+	assert.equal(parsed.task, undefined, `expected no task, got ${JSON.stringify(parsed.task)}`);
 });

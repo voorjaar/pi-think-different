@@ -60,6 +60,14 @@ const OPTION_CASES = [
 		prompt: "Call the `think` tool exactly once with no task at all, so it returns the paradigm catalogue. Then reply with the single word done. Do not read files.",
 	},
 	{
+		paradigm: "nl:prose",
+		config: { language: "zh" },
+		rpc: [
+			{ id: "cmd-1", type: "prompt", message: "/think 以六顶思考帽的方式思考俄乌战争的结果" },
+			{ id: "cmd-2", type: "prompt", message: "现在按已经固定的范式给出结论。不要读文件，不要写代码。" },
+		],
+	},
+	{
 		paradigm: "startup:config",
 		config: { startup: "hats" },
 		prompt: "Should a 12-person engineering team adopt a strict no-meetings Wednesday? Decide after thinking it through.",
@@ -90,6 +98,79 @@ function collectAssistantText(records) {
 		}
 	}
 	return parts.join("\n");
+}
+
+/**
+ * RPC driver for cases that need an extension command: print mode does not expand slash
+ * commands, RPC does. Commands are JSONL on stdin, records are split on LF only, and the run
+ * ends at agent_settled.
+ */
+function runPiRpc(cwd, commands, timeoutMs) {
+	return new Promise((resolve, reject) => {
+		const child = spawn("pi", ["--mode", "rpc", "--no-session"], { stdio: ["pipe", "pipe", "pipe"], cwd });
+		const records = [];
+		const responses = new Map();
+		let stdout = "";
+		let stderr = "";
+		let settled = false;
+		let sent = 0;
+
+		const sendNext = () => {
+			if (sent >= commands.length) return false;
+			child.stdin.write(`${JSON.stringify(commands[sent])}\n`);
+			sent += 1;
+			return true;
+		};
+
+		const finish = (error) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			try {
+				child.stdin.end();
+			} catch {
+				/* already closed */
+			}
+			if (error) reject(error);
+			else resolve({ records, responses, stderr });
+		};
+
+		const timer = setTimeout(() => finish(new Error(`pi rpc timed out after ${timeoutMs / 1000}s`)), timeoutMs);
+
+		child.stdin.on("error", () => undefined);
+		child.stdout.on("data", (chunk) => {
+			stdout += chunk.toString("utf8");
+			let newline = stdout.indexOf("\n");
+			while (newline >= 0) {
+				const line = stdout.slice(0, newline).replace(/\r$/, "").trim();
+				stdout = stdout.slice(newline + 1);
+				newline = stdout.indexOf("\n");
+				if (!line) continue;
+				let record;
+				try {
+					record = JSON.parse(line);
+				} catch {
+					continue;
+				}
+				records.push(record);
+				if (record.type === "response" && typeof record.id === "string") responses.set(record.id, record);
+				// Chain the next prompt only after the previous one was accepted or handled.
+				if (record.type === "response" && record.command === "prompt" && sent < commands.length) sendNext();
+				if (record.type === "agent_settled" && sent >= commands.length) finish(undefined);
+			}
+		});
+		child.stderr.on("data", (chunk) => {
+			stderr += chunk.toString("utf8");
+		});
+		child.on("error", (error) => finish(error));
+		child.on("close", (code) => {
+			if (settled) return;
+			if (code !== 0) finish(new Error(`pi rpc exited with code ${code}: ${stderr.slice(-300)}`));
+			else finish(undefined);
+		});
+
+		sendNext();
+	});
 }
 
 function collectAssistantThinking(records) {
@@ -222,7 +303,10 @@ async function checkParadigm(entry) {
 
 async function checkOption(entry) {
 	const cwd = scratchCwd(entry.config);
-	const { records, stderr } = await runPi(["--mode", "json", "-p", entry.prompt], RUN_TIMEOUT_MS, cwd);
+	const viaRpc = Array.isArray(entry.rpc);
+	const session = viaRpc ? await runPiRpc(cwd, entry.rpc, RUN_TIMEOUT_MS) : await runPi(["--mode", "json", "-p", entry.prompt], RUN_TIMEOUT_MS, cwd);
+	const { records, stderr } = session;
+	const responses = session.responses ?? new Map();
 	const extensionErrors = (stderr.match(/think-different[^\n]*/g) ?? []).filter((line) => /error|failed|throw/i.test(line));
 	if (extensionErrors.length > 0) return { id: entry.paradigm, ok: false, detail: `extension error: ${extensionErrors[0]}` };
 
@@ -246,6 +330,24 @@ async function checkOption(entry) {
 		if (!hasEnglishLabels) return { id: entry.paradigm, ok: false, detail: `catalogue is not English: ${toolText.slice(0, 200)}` };
 		if (catalogueHasCJK) return { id: entry.paradigm, ok: false, detail: `English catalogue leaked Chinese: ${toolText.slice(0, 200)}` };
 		return { id: entry.paradigm, ok: true, detail: `catalogue rendered in English only (${toolText.length} chars)` };
+	}
+
+	if (entry.paradigm === "nl:prose") {
+		const paradigm = resolveParadigm("hats");
+		const handled = responses.get("cmd-1");
+		if (!handled || !handled.success) return { id: entry.paradigm, ok: false, detail: `the /think command was not accepted: ${JSON.stringify(handled ?? "no response")}` };
+		if (handled.data?.disposition !== "handled") {
+			return { id: entry.paradigm, ok: false, detail: `/think <prose> returned '${handled.data?.disposition}', not 'handled': the extension command did not run` };
+		}
+		const missing = paradigm.markers.filter((marker) => !allText.includes(marker));
+		if (missing.length > 0) {
+			return {
+				id: entry.paradigm,
+				ok: false,
+				detail: `prose did not pin the paradigm; missing markers: ${missing.join(", ")} | answer ${allText.trim().length} chars | head: ${allText.slice(0, 240).replace(/\s+/g, " ")}`,
+			};
+		}
+		return { id: entry.paradigm, ok: true, detail: `"/think 以六顶思考帽的方式思考…" pinned ${paradigm.id}; ${paradigm.markers.length} markers present in the next turn` };
 	}
 
 	if (entry.paradigm === "startup:config") {
@@ -299,10 +401,13 @@ async function checkToolRun() {
 async function main() {
 	const requested = process.argv.slice(2);
 	const wantTool = requested.includes("tool");
+	const wantOptions = requested.includes("options");
 	const wanted = requested.filter((name) => name !== "tool" && name !== "options");
 	const cases = requested.length === 0 ? LIVE_CASES : LIVE_CASES.filter((entry) => wanted.includes(entry.paradigm));
-	if (cases.length === 0 && !wantTool) {
-		console.error(`No such paradigm. Known: ${LIVE_CASES.map((entry) => entry.paradigm).join(", ")}`);
+	const optionCases = requested.length === 0 || wantOptions ? OPTION_CASES : [];
+
+	if (cases.length === 0 && optionCases.length === 0 && !wantTool) {
+		console.error(`No such paradigm. Known: ${LIVE_CASES.map((entry) => entry.paradigm).join(", ")} | options | tool`);
 		process.exit(2);
 	}
 
@@ -344,7 +449,6 @@ async function main() {
 
 	await pool(cases, checkParadigm);
 
-	const optionCases = requested.length === 0 || requested.includes("options") ? OPTION_CASES : [];
 	if (optionCases.length > 0) {
 		console.log("\noptions:");
 		await pool(optionCases, checkOption);

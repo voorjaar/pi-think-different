@@ -65,6 +65,9 @@ Rules that keep this useful:
   the extension choose per prompt with `/think auto`, or turn it off with `/think off`. Respect what the
   user pinned: if `/think` already set a paradigm, follow it rather than calling `think` for the same
   shape again.
+- `/think` also accepts prose: `/think 以六顶思考帽的方式思考俄乌战争的结果` resolves to `hats` with
+  the rest of the sentence as the task. If it reports the wording matched two paradigms, ask the user
+  which one instead of picking for them.
 - Two session options change what the user sees, not how you reason: `/think lang en|zh` renders the
   menus, catalogue, and status in one language at a time, and `/think placement answer|thinking` decides
   whether the paradigm's structure appears in the visible answer or stays in the thinking block. With
