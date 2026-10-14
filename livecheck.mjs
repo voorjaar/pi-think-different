@@ -62,10 +62,8 @@ const OPTION_CASES = [
 	{
 		paradigm: "nl:prose",
 		config: { language: "zh" },
-		rpc: [
-			{ id: "cmd-1", type: "prompt", message: "/think 以六顶思考帽的方式思考俄乌战争的结果" },
-			{ id: "cmd-2", type: "prompt", message: "现在按已经固定的范式给出结论。不要读文件，不要写代码。" },
-		],
+		// One command only: /think with a task must start the turn by itself.
+		rpc: [{ id: "cmd-1", type: "prompt", message: "/think 以六顶思考帽的方式思考俄乌战争的结果" }],
 	},
 	{
 		paradigm: "startup:config",
@@ -341,13 +339,18 @@ async function checkOption(entry) {
 		}
 		const missing = paradigm.markers.filter((marker) => !allText.includes(marker));
 		if (missing.length > 0) {
+			const typeCounts = {};
+			for (const record of records) {
+				const type = record.type ?? "?";
+				typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+			}
 			return {
 				id: entry.paradigm,
 				ok: false,
-				detail: `prose did not pin the paradigm; missing markers: ${missing.join(", ")} | answer ${allText.trim().length} chars | head: ${allText.slice(0, 240).replace(/\s+/g, " ")}`,
+				detail: `prose did not pin the paradigm; missing markers: ${missing.join(", ")} | answer ${allText.trim().length} chars | records: ${JSON.stringify(typeCounts)} | stderr: ${stderr.slice(-200)}`,
 			};
 		}
-		return { id: entry.paradigm, ok: true, detail: `"/think 以六顶思考帽的方式思考…" pinned ${paradigm.id}; ${paradigm.markers.length} markers present in the next turn` };
+		return { id: entry.paradigm, ok: true, detail: `"/think 以六顶思考帽的方式思考…" pinned ${paradigm.id} and started the turn itself; ${paradigm.markers.length} markers present, ${allText.trim().length} chars` };
 	}
 
 	if (entry.paradigm === "startup:config") {

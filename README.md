@@ -77,8 +77,10 @@ Cues are the registry's own vocabulary (`id`, aliases, titles, plus a `cues` lis
 longest match wins, and Latin cues need a word boundary - `treewidth` does not select `tot`. When two
 different paradigms match, `/think` refuses to guess and asks you to name one.
 
-Free text after the paradigm is kept as the concrete task and injected as "Concrete task for this
-turn", so `/think tot design a cache` both pins the paradigm and points it at the problem.
+Free text after the paradigm is the concrete problem to think about. With a task, `/think` starts the
+turn immediately - `/think tot design a cache` pins Tree of Thoughts and answers "design a cache" in the
+same command. Without a task it only pins the paradigm, and the next prompt you send uses it (that is
+also when the task is injected as "Concrete task for this turn").
 
 Intensities: `light` (compact contract), `standard` (full contract), `deep` (full contract plus extra
 required coverage).

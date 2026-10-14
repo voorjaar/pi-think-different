@@ -141,6 +141,21 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 		return resolveParadigm(state.paradigmId);
 	}
 
+	/**
+	 * `/think <paradigm> <task>` is a question, not just a setting: start the turn instead of
+	 * waiting for the user to prompt again. The task is sent as the prompt, so it is not also
+	 * injected as "Concrete task for this turn" - that would say the same thing twice.
+	 */
+	function startTurnWithTask(task: string): void {
+		pendingTask = undefined;
+		try {
+			pi.sendUserMessage(task);
+		} catch {
+			// A run is already streaming: queue it rather than dropping the request.
+			pi.sendUserMessage(task, { deliverAs: "followUp" });
+		}
+	}
+
 	/** Read the user config and the project config, and report what is wrong with them. */
 	function loadConfigLayers(cwd: string): ThinkConfig {
 		configProblems = [];
@@ -381,6 +396,7 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 					applyState({ ...state, mode: "once", paradigmId: parsed.paradigm.id, intensity: parsed.intensity ?? state.intensity }, ctx);
 					if (parsed.viaCue) ctx.ui.notify(cueResolvedMessage(state.language, parsed.paradigm, parsed.viaCue), "info");
 					ctx.ui.notify(describe(), "info");
+					if (parsed.task) startTurnWithTask(parsed.task);
 					return;
 				case "set":
 					if (!parsed.paradigm) {
@@ -390,7 +406,8 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 					pendingTask = parsed.task;
 					applyState({ ...state, mode: "sticky", paradigmId: parsed.paradigm.id, intensity: parsed.intensity ?? state.intensity }, ctx);
 					if (parsed.viaCue) ctx.ui.notify(cueResolvedMessage(state.language, parsed.paradigm, parsed.viaCue), "info");
-					ctx.ui.notify(pendingTask ? `${describe()} ${t(state.language, "- task set for the next turn", "· 已设定下一个回合的任务")}` : describe(), "info");
+					ctx.ui.notify(pendingTask ? `${describe()} ${t(state.language, "- thinking now", "· 现在开始思考")}` : describe(), "info");
+					if (parsed.task) startTurnWithTask(parsed.task);
 					return;
 				case "status":
 				default:

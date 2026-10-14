@@ -68,7 +68,7 @@ cp -r pi-think-different ~/.pi/agent/extensions/
 
 线索就是注册表自己的词表（`id`、别名、标题，加上每个范式的 `cues`），最长匹配优先，拉丁线索要求词边界——`treewidth` 不会选中 `tot`。当两个不同范式同时命中时，`/think` 不猜，而是请你明确指定一个。
 
-范式后面的自由文本会作为具体任务保留，并以「Concrete task for this turn」注入下一回合，所以 `/think tot design a cache` 既固定范式，也指明思考对象。
+范式后面的自由文本就是要思考的具体问题。带任务时 `/think` 会直接开始这一回合：`/think tot design a cache` 固定思维树并回答「design a cache」，一条命令完成。不带任务时只固定范式，下一个提示词沿用它（这时任务会以「Concrete task for this turn」的形式注入）。
 
 强度分三档：`light`（精简契约）、`standard`（完整契约）、`deep`（完整契约外加额外覆盖要求）。
 
