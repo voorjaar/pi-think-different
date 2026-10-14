@@ -49,7 +49,12 @@ import { renderWorkflowResult, runWorkflow, type ModelCallResult } from "./workf
 
 const ENTRY_TYPE = "think-different";
 const STATUS_KEY = "think";
-const EXT_DIR = dirname(fileURLToPath(import.meta.url));
+/**
+ * The repository root, not this file's directory: `config.json` and `skills/` live next to the entry
+ * point that Pi loads (`<repo>/index.ts`), while this module sits in `src/`. Deriving the extension
+ * directory from `import.meta.url` here would look for `<repo>/src/config.json`.
+ */
+const EXT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 /**
  * Skill paths from `resources_discover` are resolved against the session cwd, so a relative
  * "skills/..." would only resolve when Pi happens to run inside this extension's folder.

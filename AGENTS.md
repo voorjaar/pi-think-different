@@ -13,7 +13,7 @@ extension is loaded by Pi as TypeScript directly; there is no build step and no 
 1. **An active paradigm is not optional.** Once a paradigm is pinned (by `/think`, `startup`, `--think`,
    auto, or random), every reply must run it - including a lookup, a rename, a one-line edit, or small
    talk. Triviality shortens the structure, it never removes it. This is enforced by wording
-   (`MANDATE_CLAUSE` in `render.ts`, and the bundled skill), **not** by a harness loop: nothing may judge
+   (`MANDATE_CLAUSE` in `src/render.ts`, and the bundled skill), **not** by a harness loop: nothing may judge
    a finished reply and demand a redo. A wrong "you skipped the paradigm" claim costs a full turn and
    produces meta-commentary, and marker detection cannot tell "skipped" from "ran it with different
    punctuation".
@@ -33,30 +33,51 @@ extension is loaded by Pi as TypeScript directly; there is no build step and no 
    a session. Keep `markers` identical between the two halves, and add its `cues` - that list is the
    user's vocabulary for it, and a unit test asserts every cue resolves back to the paradigm that owns it.
 
+## Layout
+
+```text
+src/              index.ts (all Pi wiring) + the pure modules
+                  paradigms render nlmatch autoSelect config ui placement workflow
+tests/            selftest.ts (unit) · livecheck.mjs (real Pi runs) · run-livecheck.sh
+examples/         config.example.jsonc · agent-config.example.jsonc · headless.sh
+skills/           think-different/SKILL.md (bundled, discovered through resources_discover)
+.memory/          project memory notes (local to this checkout, gitignored)
+docs              README.md README.zh-CN.md ROADMAP.md ROADMAP.zh-CN.md AGENTS.md
+```
+
+The entry point is `src/index.ts`, declared in `package.json` (`pi.extensions: ["./src/index.ts"]`) - the
+layout Pi documents for packages (see `docs/packages.md`). There is no root `index.ts` and no build step:
+Pi loads the TypeScript directly.
+
+Pure modules import each other with `./x.ts` (same directory); tests import them as `../src/x.ts`. Keep
+the pure modules free of Pi imports (`import type` is fine). That separation is what makes the logic
+testable in milliseconds: inject the model call as a function parameter and drive `workflow.ts` against a
+scripted fake model.
+
 ## Architecture
 
 | File | Role | Testable without Pi? |
 |---|---|---|
-| `index.ts` | all Pi wiring: command, tool, `--think` flag, prompt injection, `message_end` rendering, config load, session state | no |
-| `paradigms.ts` | paradigm registry: contracts, markers, aliases, cues, workflow steps | yes (pure) |
-| `render.ts` | system-prompt section rendering, intensity layering, `/think` argument parsing | yes (pure) |
-| `nlmatch.ts` | prose -> paradigm + task via registry cues | yes (pure) |
-| `autoSelect.ts` | heuristic per-prompt paradigm selection | yes (pure) |
-| `config.ts` | schema, validation, comment-tolerant parsing, layering | yes (pure) |
-| `ui.ts` | every human-facing string, one language per call | yes (pure) |
-| `placement.ts` | placement clause + structure extraction + marker rendering | yes (pure) |
-| `workflow.ts` | multi-pass engine with external score gating; takes a `ModelCall` parameter | yes (pure) |
-| `livecheck.mjs` | end-to-end checks against real `pi --mode json` / `pi --mode rpc` runs | - |
-
-Keep the pure modules free of Pi imports (`import type` is fine). That separation is what makes the logic
-testable in milliseconds: inject the model call as a function parameter and drive `workflow.ts` against a
-scripted fake model.
+| `src/index.ts` | entry + all Pi wiring: command, tool, `--think` flag, prompt injection, `message_end` rendering, config load, session state | no |
+| `src/paradigms.ts` | paradigm registry: contracts, markers, aliases, cues, workflow steps | yes (pure) |
+| `src/render.ts` | system-prompt section rendering, intensity layering, `/think` argument parsing | yes (pure) |
+| `src/nlmatch.ts` | prose -> paradigm + task via registry cues | yes (pure) |
+| `src/autoSelect.ts` | heuristic per-prompt paradigm selection | yes (pure) |
+| `src/config.ts` | schema, validation, comment-tolerant parsing, layering | yes (pure) |
+| `src/ui.ts` | every human-facing string, one language per call | yes (pure) |
+| `src/placement.ts` | placement clause + structure extraction + marker rendering | yes (pure) |
+| `src/workflow.ts` | multi-pass engine with external score gating; takes a `ModelCall` parameter | yes (pure) |
+| `tests/selftest.ts` | unit tests over the pure modules | - |
+| `tests/livecheck.mjs` | end-to-end checks against real `pi --mode json` / `pi --mode rpc` runs | - |
 
 ## Testing
 
 ```bash
-node --test selftest.ts     # 91 tests, no model, no network, milliseconds - run after every change
-node livecheck.mjs          # 18 real Pi sessions, 15-30 minutes - run only after the user has tested
+node --test tests/selftest.ts   # 91 tests, no model, no network, milliseconds - run after every change
+node tests/livecheck.mjs        # 18 real Pi sessions, 15-30 minutes - run only after the user has tested
+
+npm test                        # the unit suite
+npm run check                   # unit suite + live checks
 ```
 
 - Live cases run in a **scratch cwd** whose `.pi/pi-think-different.json` states what the case depends on.
@@ -81,6 +102,10 @@ node livecheck.mjs          # 18 real Pi sessions, 15-30 minutes - run only afte
 - **Extension assets are not cwd-relative at runtime.** Resolve bundled files from `import.meta.url`
   (`resources_discover` skill paths are resolved against the session cwd, so a relative path works during
   development and breaks everywhere else).
+- **`src/index.ts` is one directory deeper than the extension root.** `config.json` and `skills/` live
+  next to `package.json`, while the entry module sits in `src/`, so `EXT_DIR` there is
+  `join(dirname(fileURLToPath(import.meta.url)), "..")`. Using the plain `dirname` looks for
+  `<repo>/src/config.json` and silently drops every config layer.
 - **String-built regexes need `\\b`, `\\s`, `\\w`.** Inside a JS string or template literal, `\b` is a
   backspace character and `\s` is the letter `s`; a matcher built that way silently matches nothing. Regex
   literals are unaffected.
@@ -115,8 +140,8 @@ node livecheck.mjs          # 18 real Pi sessions, 15-30 minutes - run only afte
 
 | Change | Also update |
 |---|---|
-| new paradigm | `paradigms.ts` (both halves + cues), README tables (both languages), skill table, a livecheck case |
-| new user-visible option | validation in `config.ts`, strings in `ui.ts`, both READMEs, a livecheck option case |
+| new paradigm | `src/paradigms.ts` (both halves + cues), README tables (both languages), skill table, a livecheck case |
+| new user-visible option | validation in `src/config.ts`, strings in `src/ui.ts`, both READMEs, a livecheck option case |
 | rendering or placement behaviour | `MANDATE_CLAUSE` / placement clause wording, both READMEs, the skill |
 | anything a test asserts | the matching unit test - the suite is the gate for commits |
 
@@ -126,9 +151,9 @@ node livecheck.mjs          # 18 real Pi sessions, 15-30 minutes - run only afte
 ## Working order
 
 1. Make the change.
-2. `node --test selftest.ts` - green before anything else.
+2. `node --test tests/selftest.ts` - green before anything else.
 3. Describe precisely what the user should try and what correct behaviour looks like, **then stop and wait
-   for their verdict.** Do not launch `node livecheck.mjs` in the same turn as a hand-off.
+   for their verdict.** Do not launch `node tests/livecheck.mjs` in the same turn as a hand-off.
 4. After they confirm, run the full live check once, then commit.
 
 Commits use Conventional Commits (`fix(hats): ...`, `feat(options): ...`), one language per message, no

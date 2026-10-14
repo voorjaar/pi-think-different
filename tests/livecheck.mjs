@@ -4,11 +4,11 @@
  *
  * Spawns real `pi --mode json` runs with `--think <paradigm>` and asserts that the
  * assistant answer actually carries the paradigm's structural markers. This is the
- * end-to-end half of the test story: `node --test selftest.ts` proves the logic,
+ * end-to-end half of the test story: `node --test tests/selftest.ts` proves the logic,
  * this proves the extension loads inside Pi, injects the section, and is obeyed.
  *
- * Run: node livecheck.mjs            (all paradigms)
- *      node livecheck.mjs tot hats   (subset)
+ * Run: node tests/livecheck.mjs            (all paradigms)
+ *      node tests/livecheck.mjs tot hats   (subset)
  *
  * Requires an authenticated pi model. Each run is one real model request.
  */
@@ -19,7 +19,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
-import { markerHeading, resolveParadigm } from "./paradigms.ts";
+import { markerHeading, resolveParadigm } from "../src/paradigms.ts";
 
 const RUN_TIMEOUT_MS = Math.max(60_000, Math.min(900_000, Number(process.env.LIVECHECK_TIMEOUT_MS ?? 420_000)));
 const CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.LIVECHECK_CONCURRENCY ?? 3)));
@@ -412,7 +412,7 @@ async function checkOption(entry) {
 	// With PI_CODING_AGENT_DIR redirected to a scratch dir, extension discovery finds nothing there,
 	// so the extension under test is loaded explicitly.
 	const jsonArgs = agentDir
-		? ["--mode", "json", "-e", join(import.meta.dirname, "index.ts"), "-p", entry.prompt]
+		? ["--mode", "json", "-e", join(import.meta.dirname, "..", "src", "index.ts"), "-p", entry.prompt]
 		: ["--mode", "json", "-p", entry.prompt];
 	const viaRpc = Array.isArray(entry.rpc);
 	// Chained cases (RPC drives two turns) nest more model calls and need their own budget.

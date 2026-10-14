@@ -1,5 +1,6 @@
 {
-	// Copy this file to config.json in the same folder to set your defaults.
+	// Copy this file to config.json in the extension folder (next to index.ts) for defaults in this
+	// install only.
 	// Precedence (later wins): config.json < ~/.pi/agent/pi-think-different.json
 	// < <repo>/.pi/pi-think-different.json < --think < /think in the session.
 

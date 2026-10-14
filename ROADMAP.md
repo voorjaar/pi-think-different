@@ -56,7 +56,7 @@ A paradigm is done only when all of these hold:
 1. Its contract names operators the paradigm actually has (branches and pruning for ToT, elimination for
    hypothesis, one hat per section for hats) - not generic "think harder" language.
 2. Its required markers are listed verbatim in the injected contract.
-3. A real Pi run produces those markers. `node livecheck.mjs <paradigm>` is the arbiter.
+3. A real Pi run produces those markers. `node tests/livecheck.mjs <paradigm>` is the arbiter.
 4. A harness-driven run mode exists and its pruning/merge decision is computed in code, not asserted by
    the model.
 5. Unit tests cover its workflow against a scripted fake model.
@@ -137,10 +137,10 @@ Each new paradigm must ship both layers, not just a prompt.
 ## Verification commands
 
 ```bash
-node --test selftest.ts                 # fast, offline, no model
-node livecheck.mjs                      # all paradigms + options + think(mode:"run")
-node livecheck.mjs tot hats             # subset
-node livecheck.mjs options              # config startup, language, placement, prose /think
-node livecheck.mjs tool                 # only the multi-call tool case
+node --test tests/selftest.ts                 # fast, offline, no model
+node tests/livecheck.mjs                      # all paradigms + options + think(mode:"run")
+node tests/livecheck.mjs tot hats             # subset
+node tests/livecheck.mjs options              # config startup, language, placement, prose /think
+node tests/livecheck.mjs tool                 # only the multi-call tool case
 npm run check                           # both
 ```

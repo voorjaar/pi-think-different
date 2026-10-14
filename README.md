@@ -17,10 +17,10 @@ A [Pi](https://github.com/earendil-works/pi) extension that switches the agent's
 ## Installation
 
 ```bash
-cp -r pi-think-different ~/.pi/agent/extensions/
+pi install npm:pi-think-different
 ```
 
-Pi loads `index.ts` directly: no build step, no dependencies beyond Pi itself.
+Pi loads `src/index.ts` directly: no build step, no dependencies beyond Pi itself. From a checkout, `pi install ./pi-think-different` loads it from the folder instead.
 
 ## Usage
 
@@ -101,7 +101,7 @@ Defaults come from three optional JSON files (later wins), and `/think` in the s
 <repo>/.pi/pi-think-different.json                      per-project override
 ```
 
-Copy `config.example.jsonc` to `config.json` next to `index.ts` to get started. Comments (`//`, `/* */`) are allowed; a bad value is reported at session start and the rest of the file still applies.
+Copy `examples/config.example.jsonc` to `config.json` in the extension folder (next to `package.json`) to get started. Comments (`//`, `/* */`) are allowed; a bad value is reported at session start and the rest of the file still applies. `examples/agent-config.example.jsonc` is the same file for `~/.pi/agent/pi-think-different.json`, and `examples/headless.sh` shows the CLI forms.
 
 ```jsonc
 {
@@ -124,12 +124,12 @@ With `thinking`, the contract asks the model to keep the structure in its reason
 ## Development
 
 ```bash
-node --test selftest.ts     # 91 unit tests: no model, no network
-node livecheck.mjs          # end-to-end against real Pi runs (18 cases)
-node livecheck.mjs tot hats  # paradigm subset only
-node livecheck.mjs options   # config startup, language, placement, prose /think
-npm test                     # unit tests
-npm run check                # unit tests + live checks
+node --test tests/selftest.ts    # 91 unit tests: no model, no network
+node tests/livecheck.mjs         # end-to-end against real Pi runs (18 cases)
+node tests/livecheck.mjs tot hats  # paradigm subset only
+node tests/livecheck.mjs options   # config startup, language, placement, prose /think
+npm test                         # unit tests
+npm run check                    # unit tests + live checks
 ```
 
 Unit tests cover the pure modules: registry and contracts, prompt rendering, argument parsing, config layering, placement, auto-selection, score extraction, and the workflow engine against a scripted fake model. A live paradigm check spawns `pi --mode json --think <paradigm> -p "<prompt>"` and fails if the answer is missing a marker that paradigm is defined by; option checks run Pi in a scratch directory whose config sets the option under test. See [AGENTS.md](./AGENTS.md) for how to work on this extension and [ROADMAP.md](./ROADMAP.md) for what counts as "a paradigm works".

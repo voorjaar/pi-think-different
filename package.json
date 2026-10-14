@@ -1,19 +1,53 @@
 {
   "name": "pi-think-different",
-  "version": "1.0.0",
-  "description": "Switch the agent's thinking paradigm (CoT, ToT, GoT, self-critique, hypothesis & elimination, six thinking hats, debate, first principles, multi-angle) and run each paradigm as a real multi-pass workflow",
+  "version": "1.1.0",
+  "description": "Switchable thinking paradigms for the Pi coding agent",
   "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "ai-agent",
+    "thinking-paradigms",
+    "chain-of-thought",
+    "tree-of-thoughts",
+    "graph-of-thoughts",
+    "six-thinking-hats",
+    "reasoning"
+  ],
+  "author": "voorjaar",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+http://macminion.local:4096/voorjaar/pi-think-different.git"
+  },
+  "homepage": "https://github.com/voorjaar/pi-think-different",
+  "bugs": {
+    "url": "http://macminion.local:4096/voorjaar/pi-think-different/issues"
+  },
+  "files": [
+    "src/",
+    "skills/",
+    "examples/",
+    "README.md",
+    "README.zh-CN.md",
+    "AGENTS.md",
+    "ROADMAP.md",
+    "ROADMAP.zh-CN.md",
+    "LICENSE"
+  ],
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./src/index.ts"
     ]
   },
-  "scripts": {
-    "test": "node --test selftest.ts",
-    "check": "node --test selftest.ts && node livecheck.mjs"
-  },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "scripts": {
+    "test": "node --test tests/selftest.ts",
+    "check": "node --test tests/selftest.ts && node tests/livecheck.mjs"
   }
 }

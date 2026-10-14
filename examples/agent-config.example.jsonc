@@ -1,0 +1,17 @@
+{
+	// Copy this file to ~/.pi/agent/pi-think-different.json for defaults that apply to every project.
+	// Precedence (later wins): <extension>/config.json < this file
+	// < <repo>/.pi/pi-think-different.json < --think < /think in the session.
+
+	// What a session starts with: a paradigm id or alias, "auto", "random", or "off".
+	"startup": "off",
+
+	// light | standard | deep
+	"intensity": "standard",
+
+	// answer | thinking - where the paradigm's structure is shown.
+	"placement": "thinking",
+
+	// en | zh - language of /think menus, help, status, and notifications.
+	"language": "en"
+}

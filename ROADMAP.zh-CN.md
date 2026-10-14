@@ -42,7 +42,7 @@
 
 1. 契约点名这个范式真正具备的操作（ToT 的分支与剪枝、假设排他法的排除、六顶帽子的每顶一段），而不是泛泛的「再想想」。
 2. 它的必需标记在注入契约里逐字列出。
-3. 一次真实 Pi 会话能产出这些标记。`node livecheck.mjs <范式>` 是裁决者。
+3. 一次真实 Pi 会话能产出这些标记。`node tests/livecheck.mjs <范式>` 是裁决者。
 4. 存在 harness 驱动的 run 模式，而且它的剪枝/合并决定是代码算出来的，不是模型声称的。
 5. 单元测试用脚本化假模型覆盖它的 workflow。
 6. 它的线索能解析回它自己：点名它的措辞在 `/think` 与 `auto` 里都会选中它。
@@ -97,10 +97,10 @@
 ## 验证命令
 
 ```bash
-node --test selftest.ts                 # 快、离线、无模型
-node livecheck.mjs                      # 全部范式 + 选项 + think(mode:"run")
-node livecheck.mjs tot hats             # 只跑子集
-node livecheck.mjs options              # 配置 startup、语言、放置、自然语言 /think
-node livecheck.mjs tool                 # 只跑多调用的工具用例
+node --test tests/selftest.ts                 # 快、离线、无模型
+node tests/livecheck.mjs                      # 全部范式 + 选项 + think(mode:"run")
+node tests/livecheck.mjs tot hats             # 只跑子集
+node tests/livecheck.mjs options              # 配置 startup、语言、放置、自然语言 /think
+node tests/livecheck.mjs tool                 # 只跑多调用的工具用例
 npm run check                           # 两者都跑
 ```

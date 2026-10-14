@@ -1,7 +1,7 @@
 /**
  * Test suite for pi-think-different.
  *
- * Run: node --test selftest.ts
+ * Run: node --test tests/selftest.ts
  *
  * Covers the paradigm registry, prompt rendering, command parsing, auto-selection,
  * score extraction, external pruning, and the multi-pass workflow engine against a
@@ -14,15 +14,15 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { pickRandom, selectParadigm } from "./autoSelect.ts";
-import { listParadigms, markerHeading, PARADIGMS, resolveParadigm } from "./paradigms.ts";
-import { intensityFor, parseThinkArgs, renderBody, renderSection, renderTurnReminder, SECTION_TAG } from "./render.ts";
-import { cueVocabulary, matchCues, taskAfterCue } from "./nlmatch.ts";
-import { DEFAULT_CONFIG, agentConfigPath, configLayerPaths, extensionConfigPath, mergeConfigs, parseConfig, parseConfigText, projectConfigPath, resolveAgentDir, stripJsonComments } from "./config.ts";
-import { extractStructure, markerTokens, naturalizeMarkers, placeStructureBeforeAnswer, placementClause, stripMarkerDebris, unwrapAnswerBlocks, type PlacementBlock } from "./placement.ts";
-import { completionItems, describeState, helpLines, renderList, statusLabel } from "./ui.ts";
-import { branchBudget, extractScores, gateScores, renderWorkflowResult, runWorkflow, stepCharBudget, type ModelCallResult } from "./workflow.ts";
-import type { ParadigmStep } from "./paradigms.ts";
+import { pickRandom, selectParadigm } from "../src/autoSelect.ts";
+import { listParadigms, markerHeading, PARADIGMS, resolveParadigm } from "../src/paradigms.ts";
+import { intensityFor, parseThinkArgs, renderBody, renderSection, renderTurnReminder, SECTION_TAG } from "../src/render.ts";
+import { cueVocabulary, matchCues, taskAfterCue } from "../src/nlmatch.ts";
+import { DEFAULT_CONFIG, agentConfigPath, configLayerPaths, extensionConfigPath, mergeConfigs, parseConfig, parseConfigText, projectConfigPath, resolveAgentDir, stripJsonComments } from "../src/config.ts";
+import { extractStructure, markerTokens, naturalizeMarkers, placeStructureBeforeAnswer, placementClause, stripMarkerDebris, unwrapAnswerBlocks, type PlacementBlock } from "../src/placement.ts";
+import { completionItems, describeState, helpLines, renderList, statusLabel } from "../src/ui.ts";
+import { branchBudget, extractScores, gateScores, renderWorkflowResult, runWorkflow, stepCharBudget, type ModelCallResult } from "../src/workflow.ts";
+import type { ParadigmStep } from "../src/paradigms.ts";
 
 const ALLOWED_PLACEHOLDERS = new Set(["task", "last", "all", "gate", "limits", "branches", "depth"]);
 
@@ -111,7 +111,7 @@ test("resolve: ids, aliases, case, spacing, and CJK aliases", () => {
 test("skill: the bundled SKILL.md sits next to the extension, not next to the session cwd", () => {
 	// resources_discover resolves skill paths against the session cwd, so the bundled skill
 	// must be addressed from the extension's own directory.
-	const extensionDir = dirname(fileURLToPath(import.meta.url));
+	const extensionDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 	assert.ok(existsSync(join(extensionDir, "skills", "think-different", "SKILL.md")), "bundled skill missing");
 	assert.ok(!existsSync(join(process.cwd(), "skills", "think-different", "SKILL.md")) || extensionDir === process.cwd(), "skill resolves from the session cwd");
 });

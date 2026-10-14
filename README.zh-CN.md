@@ -17,10 +17,10 @@
 ## 安装
 
 ```bash
-cp -r pi-think-different ~/.pi/agent/extensions/
+pi install npm:pi-think-different
 ```
 
-Pi 直接加载 `index.ts`：无需构建步骤，除 Pi 本身之外没有依赖。
+Pi 直接加载 `src/index.ts`：无需构建步骤，除 Pi 本身之外没有依赖。本地 checkout 则用 `pi install ./pi-think-different` 从目录加载。
 
 ## 使用
 
@@ -101,7 +101,7 @@ Harness gate (external control): pruned Branch_B (3/10). Build only on: Branch_A
 <repo>/.pi/pi-think-different.json                     单个项目的覆盖
 ```
 
-把 `config.example.jsonc` 复制成同目录下的 `config.json` 即可开始。支持注释（`//`、`/* */`）；某个取值不合法时会在会话启动时提示，文件其余部分照常生效。
+把 `examples/config.example.jsonc` 复制成扩展目录下的 `config.json`（`package.json` 旁边）即可开始。支持注释（`//`、`/* */`）；某个取值不合法时会在会话启动时提示，文件其余部分照常生效。`examples/agent-config.example.jsonc` 是同一份内容给 `~/.pi/agent/pi-think-different.json` 用的，`examples/headless.sh` 列出命令行用法。
 
 ```jsonc
 {
@@ -124,12 +124,12 @@ Harness gate (external control): pruned Branch_B (3/10). Build only on: Branch_A
 ## 开发
 
 ```bash
-node --test selftest.ts      # 91 个单元测试：无模型、无网络
-node livecheck.mjs           # 针对真实 Pi 会话的端到端检查（18 用例）
-node livecheck.mjs tot hats  # 只跑指定范式子集
-node livecheck.mjs options   # 配置 startup、语言、放置、自然语言 /think
-npm test                     # 单元测试
-npm run check                # 单元测试 + 实跑检查
+node --test tests/selftest.ts    # 91 个单元测试：无模型、无网络
+node tests/livecheck.mjs         # 针对真实 Pi 会话的端到端检查（18 用例）
+node tests/livecheck.mjs tot hats  # 只跑指定范式子集
+node tests/livecheck.mjs options   # 配置 startup、语言、放置、自然语言 /think
+npm test                         # 单元测试
+npm run check                    # 单元测试 + 实跑检查
 ```
 
 单元测试覆盖纯逻辑模块：注册表与契约、提示词渲染、参数解析、配置分层、结构放置、自动选型、评分解析，以及用脚本化假模型驱动的工作流引擎。范式实跑检查会启动 `pi --mode json --think <范式> -p "<提示词>"`，如果回答里缺少该范式定义所依赖的任一标记就判定失败；选项检查在一个临时目录里跑 Pi，该目录的配置设定待验选项。如何在这个扩展上干活见 [AGENTS.md](./AGENTS.md)，「一个范式算不算正常工作」的定义见 [ROADMAP.md](./ROADMAP.md)。
