@@ -14,13 +14,13 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { selectParadigm } from "./autoSelect.ts";
-import { listParadigms, PARADIGMS, resolveParadigm } from "./paradigms.ts";
-import { intensityFor, parseThinkArgs, renderBody, renderSection, SECTION_TAG } from "./render.ts";
+import { pickRandom, selectParadigm } from "./autoSelect.ts";
+import { listParadigms, markerHeading, PARADIGMS, resolveParadigm } from "./paradigms.ts";
+import { intensityFor, parseThinkArgs, renderBody, renderSection, renderTurnReminder, SECTION_TAG } from "./render.ts";
 import { cueVocabulary, matchCues, taskAfterCue } from "./nlmatch.ts";
 import { DEFAULT_CONFIG, agentConfigPath, configLayerPaths, extensionConfigPath, mergeConfigs, parseConfig, parseConfigText, projectConfigPath, resolveAgentDir, stripJsonComments } from "./config.ts";
-import { extractStructure, placementClause } from "./placement.ts";
-import { describeState, helpLines, renderList } from "./ui.ts";
+import { extractStructure, markerTokens, naturalizeMarkers, placeStructureBeforeAnswer, placementClause, stripMarkerDebris, unwrapAnswerBlocks, type PlacementBlock } from "./placement.ts";
+import { completionItems, describeState, helpLines, renderList, statusLabel } from "./ui.ts";
 import { branchBudget, extractScores, gateScores, renderWorkflowResult, runWorkflow, stepCharBudget, type ModelCallResult } from "./workflow.ts";
 import type { ParadigmStep } from "./paradigms.ts";
 
@@ -116,19 +116,39 @@ test("skill: the bundled SKILL.md sits next to the extension, not next to the se
 	assert.ok(!existsSync(join(process.cwd(), "skills", "think-different", "SKILL.md")) || extensionDir === process.cwd(), "skill resolves from the session cwd");
 });
 
-test("render: section carries the markers, the escape hatch, and the intensity", () => {
+test("render: section carries the markers, the mandate, and the intensity", () => {
 	for (const paradigm of PARADIGMS) {
 		const section = renderSection(paradigm, "standard", "answer", "session");
 		assert.ok(section.includes(paradigm.id), `${paradigm.id}: section names the paradigm`);
 		for (const marker of paradigm.markers) {
 			assert.ok(section.includes(marker), `${paradigm.id}: section missing marker ${marker}`);
 		}
-		assert.ok(section.includes("Escape hatch"), `${paradigm.id}: section missing escape hatch`);
+		assert.ok(section.includes("Application rule, no exceptions"), `${paradigm.id}: section missing the no-exceptions mandate`);
+		assert.ok(!section.includes("Escape hatch"), `${paradigm.id}: escape hatch lets the model answer directly`);
 		assert.ok(section.includes("visible answer"), `${paradigm.id}: section missing visibility clause`);
 		assert.ok(section.includes("Tag discipline"), `${paradigm.id}: section missing tag discipline`);
 		assert.ok(section.includes(`Required markers, verbatim: ${paradigm.markers.join(", ")}`), `${paradigm.id}: section missing required-marker line`);
 		assert.ok(!section.includes("{{"), `${paradigm.id}: unresolved placeholder in section`);
 	}
+});
+
+test("render: the per-turn reminder names the paradigm and announces a switch", () => {
+	const debate = resolveParadigm("debate");
+	assert.ok(debate);
+
+	const plain = renderTurnReminder(debate, "answer");
+	assert.ok(plain.includes("Thinking paradigm for this turn: debate"), plain);
+	assert.ok(plain.includes(debate.markers.join(", ")), "the reminder must restate the markers for this turn");
+	assert.ok(!plain.includes("replaced"), "nothing was switched");
+
+	const switched = renderTurnReminder(debate, "thinking", "tot");
+	assert.ok(switched.includes("It replaced tot"), switched);
+	assert.ok(switched.includes("inside your thinking block"), switched);
+	assert.ok(switched.includes("finished"), "the old paradigm must be declared finished");
+
+	// The contract itself forbids continuing an earlier paradigm.
+	const section = renderSection(debate, "standard", "answer", "session");
+	assert.ok(section.includes("a paradigm named in an earlier turn is expired"), section.slice(0, 300));
 });
 
 test("render: placement thinking moves the structure out of the answer", () => {
@@ -215,6 +235,10 @@ test("parse: /think argument shapes", () => {
 	assert.equal(parseThinkArgs("auto").action, "auto");
 	assert.equal(parseThinkArgs("auto deep").action, "auto");
 	assert.equal(parseThinkArgs("auto deep").intensity, "deep");
+	assert.equal(parseThinkArgs("random").action, "random");
+	assert.equal(parseThinkArgs("random deep").action, "random");
+	assert.equal(parseThinkArgs("random deep").intensity, "deep");
+	assert.equal(parseThinkArgs("随机").action, "random");
 	assert.equal(parseThinkArgs("once tot").action, "once");
 	assert.equal(parseThinkArgs("once tot").paradigm?.id, "tot");
 	assert.equal(parseThinkArgs("tot").paradigm?.id, "tot");
@@ -257,6 +281,113 @@ test("select: trivial prompts are not given a paradigm", () => {
 	assert.equal(rename.confident, false, `score ${rename.score} should not clear the threshold`);
 
 	assert.equal(selectParadigm("").confident, false);
+});
+
+test("select: CJK prompts are not scored as one-word prompts", () => {
+	const ask = selectParadigm("帮我看下这个离线方案靠不靠谱");
+	assert.ok(ask.confident, `score ${ask.score}: a Chinese sentence used to count as one "word" and lose -2`);
+
+	const alternatives = selectParadigm("这个离线同步方案有哪些替代方案，权衡一下");
+	assert.ok(alternatives.confident, `score ${alternatives.score}`);
+	assert.ok(["tot", "got", "angles", "hats"].includes(alternatives.paradigm?.id ?? ""), `got ${alternatives.paradigm?.id}`);
+
+	const why = selectParadigm("为什么 livecheck 的 options 用例有时会超时");
+	assert.ok(why.confident, `score ${why.score}`);
+});
+
+test("select: a short trivial CJK instruction still gets no paradigm", () => {
+	const trivial = selectParadigm("改个名字");
+	assert.equal(trivial.confident, false, `score ${trivial.score} should not clear the threshold`);
+});
+
+test("select: auto always has a best match to fall back on", () => {
+	const trivial = selectParadigm("rename the variable x to width");
+	assert.equal(trivial.confident, false);
+	assert.ok(trivial.best, "auto mode needs a fallback paradigm instead of none");
+	assert.ok(trivial.best.id.length > 0);
+
+	assert.equal(selectParadigm("").best, undefined, "an empty prompt has no best match");
+});
+
+test("random: the same paradigm is not picked two turns in a row", () => {
+	const pool = listParadigms();
+	let previous = pickRandom(pool);
+	assert.ok(previous);
+	for (let turn = 0; turn < 25; turn += 1) {
+		const next = pickRandom(pool, previous?.id);
+		assert.ok(next);
+		assert.notEqual(next.id, previous?.id, `paradigm ${next.id} repeated`);
+		previous = next;
+	}
+
+	// A seeded generator keeps the test deterministic while still covering every paradigm.
+	let seed = 0;
+	const seen = new Set<string>();
+	for (let turn = 0; turn < 60; turn += 1) {
+		seed = (seed * 9301 + 49297) % 233280;
+		const picked = pickRandom(pool, undefined, () => seed / 233280);
+		if (picked) seen.add(picked.id);
+	}
+	assert.equal(seen.size, pool.length, "some paradigm can never be picked at random");
+});
+
+test("completions: values are argument text, never the command name", () => {
+	const empty = completionItems("en", "");
+	assert.ok(empty.some((item) => item.value === "auto"), empty.map((item) => item.value).join(", "));
+	assert.ok(empty.some((item) => item.value === "random"));
+	for (const paradigm of listParadigms()) {
+		assert.ok(empty.some((item) => item.value === paradigm.id), `missing ${paradigm.id}`);
+	}
+	// Pi replaces the whole typed argument span, so a "/think " prefix in the value doubles the command.
+	for (const item of [...empty, ...completionItems("zh", "a")]) {
+		assert.ok(!item.value.startsWith("/"), `completion value ${item.value} would render as /think /think …`);
+		assert.ok(!item.value.includes(" "), `top-level completion ${item.value} must be a single word`);
+		assert.ok(item.description.length > 0, "every completion needs a description in the picker");
+	}
+});
+
+test("completions: prefix filtering and subcommand arguments", () => {
+	const a = completionItems("en", "a");
+	assert.ok(a.length > 0 && a.every((item) => item.value.startsWith("a")), a.map((item) => item.value).join(", "));
+
+	const lang = completionItems("zh", "lang");
+	assert.deepEqual(lang.map((item) => item.value), ["lang en", "lang zh"], "a two-token argument replaces the whole argument span");
+	assert.ok(lang.every((item) => /[\u3400-\u4DBF\u4E00-\u9FFF]/.test(item.description)), lang.map((item) => item.description).join(" | "));
+
+	const placement = completionItems("en", "placement th");
+	assert.deepEqual(placement.map((item) => item.value), ["placement thinking"], placement.map((item) => item.value).join(", "));
+
+	assert.deepEqual(completionItems("en", "nope"), []);
+});
+
+test("select: wording that names a paradigm beats the generic signals", () => {
+	// "为什么" and a question mark are cot/defect signals; the named paradigm must still win.
+	const named = selectParadigm("用辩论的方式分析一下俄乌战争的结果？");
+	assert.equal(named.paradigm?.id, "debate", `auto picked ${named.paradigm?.id}: ${named.reasons.join(" | ")}`);
+	assert.equal(named.confident, true);
+	assert.ok(named.reasons.some((reason) => reason.includes("named in your wording")), named.reasons.join(" | "));
+
+	const mixed = selectParadigm("为什么这个方案值得辩论一下");
+	assert.equal(mixed.paradigm?.id, "debate", `generic 方案/为什么 pulled it to ${mixed.paradigm?.id}`);
+
+	const english = selectParadigm("steelman the migration plan and tell me what breaks");
+	assert.equal(english.paradigm?.id, "debate", english.reasons.join(" | "));
+});
+
+test("select: every paradigm is reachable from its own cues", () => {
+	for (const paradigm of listParadigms()) {
+		for (const cue of paradigm.cues ?? []) {
+			const prompt = `帮我用${cue}的方式看看这件事靠不靠谱`;
+			const selection = selectParadigm(prompt);
+			assert.equal(selection.paradigm?.id, paradigm.id, `cue "${cue}" selected ${selection.paradigm?.id}: ${selection.reasons.join(" | ")}`);
+		}
+	}
+});
+
+test("select: wording naming two paradigms is scored, not guessed", () => {
+	const both = selectParadigm("用思维树和六顶思考帽评估这个离线方案");
+	assert.ok(both.reasons.some((reason) => reason.includes("names several paradigms")), both.reasons.join(" | "));
+	assert.ok(both.paradigm, "a scored fallback is still chosen");
 });
 
 test("select: deterministic for the same prompt", () => {
@@ -636,6 +767,70 @@ test("placement: tagged structure is moved out of the answer", () => {
 	assert.ok(relocated.text.includes("Use cache-aside"), "conclusion lost");
 });
 
+test("placement: thinking placement unwraps the answer block so the answer has no tags", () => {
+	const paradigm = resolveParadigm("tot")!;
+	const answer = [
+		"<thought_tree>",
+		"Branch A: cache-aside. Score: 8/10",
+		"</thought_tree>",
+		"",
+		"<answer>",
+		"Use cache-aside with a 60s TTL.",
+		"</answer>",
+	].join("\n");
+
+	const relocated = extractStructure(answer, paradigm, { unwrapAnswer: true });
+	assert.ok(!relocated.text.includes("<answer>"), "opening answer tag left in the visible answer");
+	assert.ok(!relocated.text.includes("</answer>"), "closing answer tag left in the visible answer");
+	assert.ok(relocated.text.includes("Use cache-aside"), "conclusion lost");
+	assert.ok((relocated.structure ?? "").includes("Branch A"), "structure not extracted");
+});
+
+test("placement: answer placement keeps the answer block untouched", () => {
+	const paradigm = resolveParadigm("tot")!;
+	const answer = "<thought_tree>\nBranch A. Score: 8/10\n</thought_tree>\n\n<answer>\nShip cache-aside.\n</answer>";
+	const relocated = extractStructure(answer, paradigm);
+	assert.ok(relocated.text.includes("<answer>"), "answer block was removed for answer placement");
+	assert.ok(relocated.text.includes("Ship cache-aside"), "conclusion lost");
+});
+
+test("placement: unwrapAnswerBlocks handles text with no answer tags", () => {
+	assert.equal(unwrapAnswerBlocks("just a conclusion"), "just a conclusion");
+	assert.equal(unwrapAnswerBlocks("<answer>\nShip it.\n</answer>"), "Ship it.");
+});
+
+test("placement: relocated structure lands in the thinking before the answer, never after", () => {
+	const content: PlacementBlock[] = [
+		{ type: "thinking", thinking: "model's own reasoning" },
+		{ type: "text", text: "<thought_tree>Branch A</thought_tree>" },
+		{ type: "toolCall", name: "read" },
+	];
+	const out = placeStructureBeforeAnswer(content, "<thought_tree>Branch A</thought_tree>", "Ship cache-aside.");
+	assert.deepEqual(
+		out.map((block) => block.type),
+		["thinking", "text", "toolCall"],
+		"a second Thinking section appeared after the answer",
+	);
+	assert.equal(out[0].thinking, "model's own reasoning\n\n<thought_tree>Branch A</thought_tree>");
+	assert.equal(out[1].text, "Ship cache-aside.");
+});
+
+test("placement: with no preceding thinking a thinking block is inserted directly above the answer", () => {
+	const content: PlacementBlock[] = [
+		{ type: "toolCall", name: "read" },
+		{ type: "text", text: "first half" },
+		{ type: "text", text: "second half" },
+	];
+	const out = placeStructureBeforeAnswer(content, "⚪ facts", "the conclusion");
+	assert.deepEqual(
+		out.map((block) => block.type),
+		["toolCall", "thinking", "text"],
+		"thinking was not inserted before the answer, or the split answer was not folded into one block",
+	);
+	assert.equal(out[1].thinking, "⚪ facts");
+	assert.equal(out[2].text, "the conclusion");
+});
+
 test("placement: heading-form paradigm sections are recognised too", () => {
 	const paradigm = resolveParadigm("hats")!;
 	const answer = [
@@ -654,6 +849,238 @@ test("placement: heading-form paradigm sections are recognised too", () => {
 	assert.ok(structure.includes("White Hat"), "hat sections not extracted");
 	assert.ok(structure.includes("Black Hat"), "last hat section not extracted");
 	assert.ok(relocated.text.includes("ship the canary"), "conclusion lost");
+});
+
+test("placement: marker debris never survives in the visible answer", () => {
+	const angles = resolveParadigm("angles");
+	assert.ok(angles);
+
+	// The exact mess from a real session: relocated spans leave bare marker lines and stray tags.
+	const messy = [
+		"它产生的是存活，不是收益。",
+		"</angle:adversary>",
+		"angle:pragmatist",
+		"一年尺度的成本/收益排序：",
+		"1. 储蓄率与收入路径。",
+		"</angle:pragmatist>",
+		"<synthesis>",
+		"三个角度在一点上一致。",
+	].join("\n\n");
+
+	const clean = stripMarkerDebris(messy, angles.markers);
+	for (const marker of angles.markers) {
+		assert.ok(!clean.includes(marker.replace(/^<|>$/g, "")), `marker ${marker} survived in the answer`);
+	}
+	assert.ok(clean.includes("它产生的是存活"));
+	assert.ok(clean.includes("三个角度在一点上一致"));
+	assert.ok(!clean.includes("\n\n\n"), "stripping must not leave runs of blank lines");
+
+	// Inline tags inside a sentence are removed too.
+	const inline = stripMarkerDebris("结论是 <synthesis> 这条规则可审计", angles.markers);
+	assert.equal(inline, "结论是  这条规则可审计".replace("  ", " "));
+
+	// A marker word used as ordinary prose in a sentence is left alone.
+	const prose = stripMarkerDebris("The synthesis step is where the angles agree.", angles.markers);
+	assert.equal(prose, "The synthesis step is where the angles agree.");
+
+	// With no markers there is nothing to strip.
+	assert.equal(stripMarkerDebris("plain text", []), "plain text");
+});
+
+test("placement: thinking placement tells the model to use natural language instead of markers", () => {
+	const angles = resolveParadigm("angles");
+	assert.ok(angles);
+	const clause = placementClause("thinking", angles);
+	assert.ok(clause.includes("<angle:adversary>"), "the clause must name the tokens being banned");
+	assert.ok(/natural language/i.test(clause), "the clause must ask for natural-language headings");
+	assert.ok(!/\n/.test(clause), "the clause is one paragraph inside the contract section");
+});
+
+test("placement: answer placement renders markers as natural-language headings", () => {
+	const angles = resolveParadigm("angles");
+	assert.ok(angles);
+
+	const tagged = [
+		"<angle:system>",
+		"系统把市场换成个人的金钱系统。",
+		"</angle:system>",
+		"<angle:adversary>",
+		"它产生的是存活，不是收益。",
+		"</angle:adversary>",
+		"<synthesis>",
+		"三个角度在一点上一致。",
+		"</synthesis>",
+		"<answer>",
+		"结论：先改默认假设。",
+		"</answer>",
+	].join("\n\n");
+
+	const zh = naturalizeMarkers(tagged, angles, "zh");
+	assert.ok(zh.includes("**系统视角**"), zh.slice(0, 200));
+	assert.ok(zh.includes("**对手视角**"), zh.slice(0, 200));
+	assert.ok(zh.includes("**综合**"), zh.slice(0, 200));
+	assert.ok(zh.includes("结论：先改默认假设。"));
+	for (const marker of angles.markers) {
+		assert.ok(!zh.includes(marker), `marker ${marker} leaked into the visible answer`);
+	}
+	assert.equal((zh.match(/^#{1,6} /gm) ?? []).length, 0, `no Markdown heading may be generated: ${zh.slice(0, 300)}`);
+
+	const en = naturalizeMarkers(tagged, angles, "en");
+	assert.ok(en.includes("**Adversary angle**"), en.slice(0, 200));
+	assert.ok(en.includes("**Synthesis**"), en.slice(0, 200));
+	assert.ok(!en.includes("<angle:adversary>"));
+	for (const label of en.match(/\*\*[^*]+\*\*/g) ?? []) {
+		assert.ok(!/[\u4e00-\u9fff]/.test(label), `an English session must not get a Chinese label: ${label}`);
+	}
+	for (const label of zh.match(/\*\*[^*]+\*\*/g) ?? []) {
+		assert.ok(/[\u4e00-\u9fff]/.test(label), `a Chinese session must not get an English label: ${label}`);
+	}
+});
+
+test("placement: hats markers are one fixed emoji per hat, and the tag form is still accepted", () => {
+	const hats = resolveParadigm("hats")!;
+	assert.deepEqual(
+		hats.markers.slice(0, 6),
+		["⚪", "🔴", "⚫", "🟡", "🟢", "🔵"],
+		"hats markers are fixed emoji: white, red, black, yellow, green, blue",
+	);
+	assert.deepEqual(
+		hats.markerAliases,
+		{ "<hat:white>": "⚪", "<hat:red>": "🔴", "<hat:black>": "⚫", "<hat:yellow>": "🟡", "<hat:green>": "🟢", "<hat:blue>": "🔵" },
+		"a session whose model still writes the tag form must render the same hats",
+	);
+
+	// Emoji sections are written verbatim: no heading is generated and the body stays on its own line.
+	const tagged = ["⚪ 只有菜单和价格已知。", "⚫ 冷冻虾仁未解冻会中心生。", "🔵 先解冻再下锅。"].join("\n");
+	const zh = naturalizeMarkers(tagged, hats, "zh");
+	assert.equal(zh.trim(), tagged, `hats sections must pass through unchanged: ${zh}`);
+	assert.equal((zh.match(/^### /gm) ?? []).length, 0, `no heading may be generated for hats: ${zh}`);
+
+	// The tag form a previous contract asked for is stripped as syntax, but the text under it is kept.
+	const tagForm = ["<hat:black>", "虾仁会老。", "</hat:black>", "<answer>", "结论：先解冻。", "</answer>"].join("\n");
+	const fromTag = naturalizeMarkers(tagForm, hats, "zh");
+	assert.ok(fromTag.includes("虾仁会老。"), fromTag.slice(0, 300));
+	assert.ok(fromTag.includes("结论：先解冻。"), fromTag.slice(0, 300));
+	assert.ok(!fromTag.includes("hat:"), fromTag.slice(0, 300));
+	assert.ok(!stripMarkerDebris("结论如下。\n</hat:black>", markerTokens(hats)).includes("hat:"), "alias debris survived");
+});
+
+test("placement: hats sections are passed through exactly as the model wrote them", () => {
+	const hats = resolveParadigm("hats")!;
+	assert.equal(hats.verbatimMarkers, true, "hats must not be rewritten into generated headings");
+
+	// The real-session shape: a wrong colour and a two-circle label. The harness no longer edits them.
+	const mislabelled = ["🔵 Black: risk - rubber shrimp", "🟡/🔵 Blue: control - two routes"].join("\n");
+	const out = naturalizeMarkers(mislabelled, hats, "zh");
+	assert.equal(out.trim(), mislabelled, out.slice(0, 400));
+	assert.equal((out.match(/^### /gm) ?? []).length, 0, `no heading may be generated for hats: ${out.slice(0, 400)}`);
+});
+
+test("placement: hats structure still moves to the thinking block with its emoji intact", () => {
+	const hats = resolveParadigm("hats")!;
+	const answer = [
+		"⚪ 白帽：现有信息只有菜单和价格。",
+		"⚫ 黑帽：冷冻虾仁未解冻会中心生。",
+		"<answer>",
+		"结论：先解冻再下锅。",
+		"</answer>",
+	].join("\n");
+	const placed = extractStructure(answer, hats, { unwrapAnswer: true });
+	const structure = placed.structure ?? "";
+	assert.ok(structure.includes("⚫ 黑帽"), `hats structure did not move: ${JSON.stringify(placed).slice(0, 400)}`);
+	assert.ok(placed.text.includes("结论：先解冻再下锅。"), placed.text);
+	assert.ok(!placed.text.includes("⚫"), `the black hat stayed in the answer: ${placed.text}`);
+});
+
+test("placement: a model that heads each tag gets one heading and keeps its body under it", () => {
+	const hats = resolveParadigm("hats")!;
+	// The exact shape from a real session: `### <hat:white> label` lines with the body below each one.
+	const answer = [
+		"### <hat:white> 白帽：事实与数据",
+		"现有信息：家常中餐做法，食材为虾仁加鸡蛋。",
+		"### <hat:red> 红帽：感受与直觉",
+		"多数人怕两件事：虾仁腥、蛋炒老。",
+		"### <hat:black> 黑帽：风险与批判",
+		"主要失败模式：冷冻虾仁未解冻、虾炒过头变橡皮。",
+	].join("\n");
+	const out = naturalizeMarkers(answer, hats, "zh");
+
+	assert.ok(!out.includes("<hat:"), out.slice(0, 300));
+	assert.ok(out.includes("### 白帽：事实与数据"), out.slice(0, 300));
+
+	// Each body must stay under its own line, and no heading may be added by the harness.
+	const at = (needle: string) => out.indexOf(needle);
+	assert.ok(at("### 白帽：事实与数据") < at("现有信息"), `body drifted: ${out.slice(0, 400)}`);
+	assert.ok(at("### 黑帽：风险与批判") < at("主要失败模式"), `body drifted: ${out.slice(0, 400)}`);
+	assert.equal((out.match(/^### /gm) ?? []).length, 3, out.slice(0, 400));
+});
+
+test("placement: a mislabelled hat keeps the line the model wrote", () => {
+	const hats = resolveParadigm("hats")!;
+	// The real-session shape: black labelled with a blue circle, blue with two circles, no trailing newline.
+	const mislabelled = ["⚫ Black: risk - 主要失败模式：冷冻虾仁未解冻；虾炒过头变橡皮。", "🟡/🔵 Blue: control - 默认推荐路径 (1) 分炒合锅。"].join("\n");
+	const out = naturalizeMarkers(mislabelled, hats, "zh");
+
+	assert.equal(out.trim(), mislabelled, out.slice(0, 400));
+	assert.ok(out.includes("主要失败模式："), out.slice(0, 400));
+	assert.ok(out.includes("默认推荐路径"), out.slice(0, 400));
+});
+
+test("placement: every paradigm label is bold, in the session language, with no heading syntax", () => {
+	for (const paradigm of listParadigms()) {
+		if (paradigm.verbatimMarkers) continue;
+		const tagged = paradigm.markers
+			.filter((marker) => marker !== "<answer>")
+			.map((marker) => `${marker}\nSection text.\n${marker.replace(/^</, "</")}`)
+			.join("\n\n");
+
+		const en = naturalizeMarkers(tagged, paradigm, "en");
+		const zh = naturalizeMarkers(tagged, paradigm, "zh");
+
+		assert.equal((en.match(/^#{1,6} /gm) ?? []).length, 0, `${paradigm.id} en: ${en.slice(0, 200)}`);
+		assert.equal((zh.match(/^#{1,6} /gm) ?? []).length, 0, `${paradigm.id} zh: ${zh.slice(0, 200)}`);
+		for (const marker of paradigm.markers) {
+			assert.ok(!en.includes(marker), `${paradigm.id} en marker ${marker} survived: ${en.slice(0, 200)}`);
+			assert.ok(!zh.includes(marker), `${paradigm.id} zh marker ${marker} survived: ${zh.slice(0, 200)}`);
+		}
+		if (en.includes("Section text.") && zh.includes("Section text.")) {
+			assert.ok(/\*\*[^*]+\*\*/.test(en), `${paradigm.id}: no bold label rendered: ${en.slice(0, 200)}`);
+			for (const label of en.match(/\*\*[^*]+\*\*/g) ?? []) {
+				assert.ok(!/[\u4e00-\u9fff]/.test(label), `${paradigm.id} en labels must be English: ${label}`);
+			}
+			for (const label of zh.match(/\*\*[^*]+\*\*/g) ?? []) {
+				assert.ok(/[\u4e00-\u9fff]/.test(label), `${paradigm.id} zh labels must be Chinese: ${label}`);
+			}
+		}
+	}
+});
+
+test("ui: the status bar shows the active paradigm's own icon", () => {
+	const hats = resolveParadigm("hats")!;
+	assert.equal(statusLabel({ lang: "zh", mode: "sticky", paradigm: hats, paradigmId: "hats", intensity: "standard", placement: "answer" }), "🎩 hats");
+	assert.equal(statusLabel({ lang: "zh", mode: "auto", paradigm: hats, paradigmId: "hats", intensity: "standard", placement: "answer" }), "🎩 自动 → hats");
+	assert.equal(statusLabel({ lang: "en", mode: "random", paradigm: resolveParadigm("tot")!, paradigmId: "tot", intensity: "deep", placement: "thinking" }), "🌳 random → tot · deep");
+
+	// A generic brain next to a paradigm name is what made the bar contradict the answer.
+	for (const paradigm of listParadigms()) {
+		const label = statusLabel({ lang: "en", mode: "sticky", paradigm, paradigmId: paradigm.id, intensity: "standard", placement: "answer" });
+		assert.ok(label.startsWith(paradigm.emoji), `${paradigm.id}: ${label}`);
+		assert.ok(label.includes(paradigm.id), `${paradigm.id}: ${label}`);
+	}
+
+	assert.equal(statusLabel({ lang: "en", mode: "auto", intensity: "standard", placement: "answer" }), "🧠 auto", "auto before a pick has a fallback icon");
+});
+
+test("registry: every marker has a natural-language heading", () => {
+	for (const paradigm of listParadigms()) {
+		for (const marker of paradigm.markers) {
+			const en = markerHeading(marker, "en");
+			const zh = markerHeading(marker, "zh");
+			assert.notEqual(en, marker, `${paradigm.id} marker ${marker} has no English heading`);
+			assert.notEqual(zh, marker, `${paradigm.id} marker ${marker} has no Chinese heading`);
+			assert.ok(!/[<>]/.test(en) && !/[<>]/.test(zh), `${paradigm.id} heading for ${marker} still contains brackets`);
+		}
+	}
 });
 
 test("placement: nothing to move returns the answer untouched", () => {

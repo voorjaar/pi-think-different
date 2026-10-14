@@ -50,6 +50,24 @@ export interface Paradigm {
 	bestForZh: string;
 	/** Structural blocks the model must emit. */
 	markers: string[];
+	/**
+	 * Show this paradigm's markers to the user exactly as the model wrote them instead of rewriting each
+	 * section as a natural-language heading. Used by `hats`: its emoji labels are the readable form, and a
+	 * generated `###` heading above every section reads worse than the line the model already wrote.
+	 */
+	verbatimMarkers?: boolean;
+	/**
+	 * Alternative tokens a model commonly writes instead of a declared marker, mapped to the marker they
+	 * stand for. They are recognised for extraction and rendering (the heading comes from the canonical
+	 * marker), but they are never required by a check - a paradigm is verified by its `markers`.
+	 */
+	markerAliases?: Record<string, string>;
+	/**
+	 * Words a model writes in a section heading that say which section it meant. Used only to re-label a
+	 * section that was matched through `markerAliases`: when a model writes the wrong colour emoji next to
+	 * the right hat name, the name wins and the heading gets the colour this table declares.
+	 */
+	markerHeadingWords?: Record<string, string>;
 	limits: { branches: number; depth: number };
 	/** Rough cost, so the user can pick a paradigm knowingly. */
 	cost: string;
@@ -82,6 +100,60 @@ const SKIP_KEYWORDS = [
 ];
 
 const COMMON_SKIP = SKIP_KEYWORDS;
+
+import type { Language } from "./config.ts";
+
+/**
+ * Natural-language headings for every structural marker.
+ *
+ * The model always writes the markers verbatim - that is what makes a paradigm verifiable. What the
+ * user reads is the heading instead: `placement: "answer"` renders each marker section as a heading in
+ * the session language, `placement: "thinking"` keeps the markers inside the thinking block. Either way
+ * no `<angle:adversary>` or `</synthesis>` ever lands in the visible answer.
+ *
+ * Keys are the marker exactly as declared in `markers` (tags with brackets, hats as bare emoji).
+ */
+export const MARKER_HEADINGS: Record<string, [string, string]> = {
+	"<reasoning>": ["Reasoning", "推理"],
+	"<answer>": ["Answer", "结论"],
+	"<thought_tree>": ["Thought tree", "思维树"],
+	"<thought_graph>": ["Thought graph", "思维图"],
+	"<draft>": ["Draft", "草稿"],
+	"<criticism>": ["Criticism", "批评"],
+	"<refinement>": ["Refinement", "修订"],
+	"<hypothesis_matrix>": ["Hypothesis matrix", "假设矩阵"],
+	"<validation_process>": ["Validation", "验证过程"],
+	"⚪": ["⚪ White hat - facts and figures", "⚪ 白帽：事实与数据"],
+	"🔴": ["🔴 Red hat - feelings and intuition", "🔴 红帽：感受与直觉"],
+	"🔵": ["🔵 Blue hat - process and control", "🔵 蓝帽：流程与控制"],
+	"🟡": ["🟡 Yellow hat - benefits and value", "🟡 黄帽：价值与收益"],
+	"🟢": ["🟢 Green hat - alternatives and new ideas", "🟢 绿帽：替代方案与新想法"],
+	"⚫": ["⚫ Black hat - risk and criticism", "⚫ 黑帽：风险与批判"],
+	"<hat:white>": ["⚪ White hat - facts and figures", "⚪ 白帽：事实与数据"],
+	"<hat:red>": ["🔴 Red hat - feelings and intuition", "🔴 红帽：感受与直觉"],
+	"<hat:black>": ["⚫ Black hat - risk and criticism", "⚫ 黑帽：风险与批判"],
+	"<hat:yellow>": ["🟡 Yellow hat - benefits and value", "🟡 黄帽：价值与收益"],
+	"<hat:green>": ["🟢 Green hat - alternatives and new ideas", "🟢 绿帽：替代方案与新想法"],
+	"<hat:blue>": ["🔵 Blue hat - process and control", "🔵 蓝帽：流程与控制"],
+	"<advocate>": ["Advocate", "正方"],
+	"<critic>": ["Critic", "反方"],
+	"<rebuttal>": ["Rebuttal", "回应"],
+	"<judge>": ["Judge", "裁判"],
+	"<decomposition>": ["Decomposition", "拆解"],
+	"<axioms>": ["First principles", "基本事实"],
+	"<rebuild>": ["Rebuild", "重建"],
+	"<angle:system>": ["System angle", "系统视角"],
+	"<angle:adversary>": ["Adversary angle", "对手视角"],
+	"<angle:pragmatist>": ["Pragmatist angle", "务实视角"],
+	"<synthesis>": ["Synthesis", "综合"],
+};
+
+/** The natural-language heading for a marker, falling back to the marker name without brackets. */
+export function markerHeading(marker: string, language: Language): string {
+	const heading = MARKER_HEADINGS[marker];
+	if (heading) return heading[language === "zh" ? 1 : 0];
+	return marker.replace(/^<|>$/g, "");
+}
 
 export const PARADIGMS: Paradigm[] = [
 	{
@@ -364,6 +436,43 @@ The surviving cause, the confidence level, and the single cheapest next check th
 		bestFor: "Decisions, proposals, adoption calls, product and process trade-offs.",
 		bestForZh: "决策、方案、要不要采纳、产品与流程上的取舍。",
 		markers: ["⚪", "🔴", "⚫", "🟡", "🟢", "🔵", "<answer>"],
+		verbatimMarkers: true,
+		// The colour is fixed by this registry, not chosen by the model: one emoji per hat, and the tag form
+		// an earlier contract used is accepted as the same section so a session mid-switch still renders.
+		markerAliases: {
+			"<hat:white>": "⚪",
+			"<hat:red>": "🔴",
+			"<hat:black>": "⚫",
+			"<hat:yellow>": "🟡",
+			"<hat:green>": "🟢",
+			"<hat:blue>": "🔵",
+		},
+		markerHeadingWords: {
+			white: "⚪",
+			facts: "⚪",
+			red: "🔴",
+			gut: "🔴",
+			black: "⚫",
+			risk: "⚫",
+			yellow: "🟡",
+			value: "🟡",
+			green: "🟢",
+			alternatives: "🟢",
+			blue: "🔵",
+			decision: "🔵",
+			"白帽": "⚪",
+			"事实": "⚪",
+			"红帽": "🔴",
+			"直觉": "🔴",
+			"黑帽": "⚫",
+			"风险": "⚫",
+			"黄帽": "🟡",
+			"价值": "🟡",
+			"绿帽": "🟢",
+			"替代": "🟢",
+			"蓝帽": "🔵",
+			"决策": "🔵",
+		},
 		limits: { branches: 1, depth: 1 },
 		cost: "1 pass scaffolded / 6 model calls in run mode",
 		costZh: "注入契约 1 遍 / run 模式 6 次模型调用",
@@ -371,20 +480,24 @@ The surviving cause, the confidence level, and the single cheapest next check th
 		skipKeywords: COMMON_SKIP,
 		body: `Evaluate the matter through all six thinking hats, one hat at a time. Stay inside one hat per section; do not blend lenses.
 
-⚪ White (facts): what data is actually available, what is missing, what would have to be measured.
-🔴 Red (gut): the honest emotional reaction of the people affected, with no justification.
-⚫ Black (risk): the failure mode, the worst realistic outcome, the fatal flaw, who gets hurt.
-🟡 Yellow (value): the best realistic outcome, the concrete benefit, why this could work.
-🟢 Green (alternatives): at least two different ways to get the same goal, including a cheaper or smaller one.
-🔵 Blue (control): the decision, the conditions that would change it, and the next actions with owners.
+The section marker is the emoji on the left. This mapping is fixed - ⚪ is the white hat, ⚫ is the black hat, 🔵 is the blue hat - so write the emoji exactly as printed and never substitute a different circle, a colour word, or a heading for it.
 
-Six sections, one per hat, each opening with its emoji exactly as written above. ⚫ Black is its own section even if risk already appeared under another hat - naming a risk somewhere else does not count as the black hat, and a hat you have little to say about still gets at least one line.
+⚪ White hat (facts): what data is actually available, what is missing, what would have to be measured.
+🔴 Red hat (gut): the honest emotional reaction of the people affected, with no justification.
+⚫ Black hat (risk): the failure mode, the worst realistic outcome, the fatal flaw, who gets hurt.
+🟡 Yellow hat (value): the best realistic outcome, the concrete benefit, why this could work.
+🟢 Green hat (alternatives): at least two different ways to get the same goal, including a cheaper or smaller one.
+🔵 Blue hat (control): the decision, the conditions that would change it, and the next actions with owners.
+
+Six sections, one per hat, each starting with its own emoji from the table above. ⚫ Black is its own section even if risk already appeared under another hat: naming a risk somewhere else does not count as the black hat, and a hat you have little to say about still gets at least one line.
+
+All six or none: skipping 🟡 because there is nothing optimistic to say, or stopping before 🔵 because the decision is already implied, is not a shorter hats run - it is a different paradigm, and it counts as the paradigm not having run.
 
 <answer>
 The decision and the next actions.
 </answer>`,
 		compact:
-			"Evaluate through six separate sections - ⚪ facts, 🔴 gut reaction, ⚫ risks and fatal flaws, 🟡 benefits, 🟢 at least two alternatives, 🔵 decision plus next actions - then an <answer> block.",
+			"Evaluate through six separate sections, each opening with its fixed emoji - ⚪ facts, 🔴 gut reaction, ⚫ risks and fatal flaws, 🟡 benefits, 🟢 at least two alternatives, 🔵 decision plus next actions - all six sections, none skipped or merged, then an <answer> block.",
 		deep: "For ⚫ and 🟢 produce two additional items each, and in 🔵 state the reversal condition that would make you change the decision.",
 		steps: [
 			{ id: "white", label: "White hat (facts)", system: "You wear the white hat: facts and data only. No opinions, no risks, no ideas. Be explicit about what is missing.", user: "{{task}}", maxChars: 1200 },
@@ -406,7 +519,7 @@ The decision and the next actions.
 		titleZh: "正反辩论",
 		emoji: "⚔️",
 		aliases: ["dialectic", "red-team", "steelman", "devil", "辩论", "反驳", "抬杠"],
-		cues: ["正反两面", "正方反方", "对抗性论证", "钢人论证", "最强反驳", "steelman", "debate both sides", "devil's advocate"],
+		cues: ["正反两面", "正方反方", "对抗性论证", "钢人论证", "最强反驳", "辩论一下", "辩一辩", "正反辩论", "辩论", "steelman", "debate both sides", "devil's advocate"],
 		summary: "Advocate, hardest critic, rebuttal, then a judge's verdict.",
 		summaryZh: "正方、最狠的反方、反驳，然后裁判给出判决。",
 		bestFor: "Contested calls where one side is already loaded in the conversation.",
@@ -415,7 +528,7 @@ The decision and the next actions.
 		limits: { branches: 1, depth: 1 },
 		cost: "1 pass scaffolded / 4 model calls in run mode",
 		costZh: "注入契约 1 遍 / run 模式 4 次模型调用",
-		keywords: ["convince", "disagree", "argue", "risk of being wrong", "challenge", "is this right", "反驳", "站得住脚", "靠谱吗"],
+		keywords: ["convince", "disagree", "argue", "risk of being wrong", "challenge", "is this right", "辩论", "反驳", "站得住脚", "靠谱吗"],
 		skipKeywords: COMMON_SKIP,
 		body: `Run a structured debate on the position implied by the request.
 

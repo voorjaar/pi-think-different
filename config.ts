@@ -38,7 +38,7 @@ export interface ThinkConfig {
 export const DEFAULT_CONFIG: ThinkConfig = {
 	startup: "off",
 	intensity: "standard",
-	placement: "answer",
+	placement: "thinking",
 	language: "en",
 };
 
@@ -237,7 +237,7 @@ export const EXAMPLE_CONFIG = `{
 	// "answer": the paradigm's structure is shown in the answer.
 	// "thinking": the structure is kept in the thinking block and the answer
 	// carries only the conclusion.
-	"placement": "answer",
+	"placement": "thinking",
 
 	// en | zh - language for /think menus, help, status, and notifications.
 	"language": "en"

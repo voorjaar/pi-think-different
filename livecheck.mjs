@@ -19,7 +19,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
-import { resolveParadigm } from "./paradigms.ts";
+import { markerHeading, resolveParadigm } from "./paradigms.ts";
 
 const RUN_TIMEOUT_MS = Math.max(60_000, Math.min(900_000, Number(process.env.LIVECHECK_TIMEOUT_MS ?? 420_000)));
 const CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.LIVECHECK_CONCURRENCY ?? 3)));
@@ -76,12 +76,29 @@ const OPTION_CASES = [
 		// The agent-level file (<agentDir>/pi-think-different.json) must apply even with no project config.
 		paradigm: "startup:agent",
 		agentConfig: { startup: "tot", language: "en" },
+		timeoutMs: 900_000,
 		prompt: "Should a 12-person engineering team adopt a strict no-meetings Wednesday? Decide after thinking it through.",
 	},
 	{
 		paradigm: "placement:thinking",
 		config: { startup: "tot", placement: "thinking" },
 		prompt: "A note-taking app needs offline support. Consider at least three genuinely different architectural approaches, score each, prune the weak ones, deepen the survivor, and pick a path. No code, no file reading.",
+	},
+	{
+		// A switched paradigm has to land in the turn itself: the system-prompt section only travels as a diff.
+		paradigm: "random:switch",
+		config: { startup: "random" },
+		timeoutMs: 900_000,
+		rpc: [
+			{ id: "cmd-1", type: "prompt", message: "番茄炒蛋怎么做？简短回答。" },
+			{ id: "cmd-2", type: "prompt", message: "黄瓜炒蛋呢？简短回答。" },
+		],
+	},
+	{
+		// An active paradigm applies to every prompt, however trivial: the contract must hold without any redo loop.
+		paradigm: "mandate:trivial",
+		config: { startup: "angles" },
+		prompt: "把下面这行里的变量 x 改名为 width：`const x = rows.length;` 只改名字。",
 	},
 ];
 
@@ -114,7 +131,10 @@ function scratchAgentDir(config) {
 		if (existsSync(source)) symlinkSync(source, join(dir, name));
 	}
 	mkdirSync(join(dir, "sessions"), { recursive: true });
-	writeFileSync(join(dir, "pi-think-different.json"), `${JSON.stringify(config, null, "\t")}\n`, "utf8");
+	// Same rule as scratchCwd: the placement under assertion is pinned, so the real agent layer of the
+	// machine running the check cannot move the structure out of the answer.
+	const effective = { placement: "answer", ...config };
+	writeFileSync(join(dir, "pi-think-different.json"), `${JSON.stringify(effective, null, "\t")}\n`, "utf8");
 	return dir;
 }
 
@@ -134,7 +154,7 @@ function collectAssistantText(records) {
 /**
  * RPC driver for cases that need an extension command: print mode does not expand slash
  * commands, RPC does. Commands are JSONL on stdin, records are split on LF only, and the run
- * ends at agent_settled.
+ * ends once every command has had its turn (one `agent_settled` per command).
  */
 function runPiRpc(cwd, commands, timeoutMs) {
 	return new Promise((resolve, reject) => {
@@ -145,6 +165,7 @@ function runPiRpc(cwd, commands, timeoutMs) {
 		let stderr = "";
 		let settled = false;
 		let sent = 0;
+		let turnsSettled = 0;
 
 		const sendNext = () => {
 			if (sent >= commands.length) return false;
@@ -185,9 +206,13 @@ function runPiRpc(cwd, commands, timeoutMs) {
 				}
 				records.push(record);
 				if (record.type === "response" && typeof record.id === "string") responses.set(record.id, record);
-				// Chain the next prompt only after the previous one was accepted or handled.
-				if (record.type === "response" && record.command === "prompt" && sent < commands.length) sendNext();
-				if (record.type === "agent_settled" && sent >= commands.length) finish(undefined);
+				// Each command in these cases starts a turn, so the next prompt is chained at the turn boundary.
+				// Ending on the first agent_settled instead would end a two-prompt case after its first turn.
+				if (record.type === "agent_settled") {
+					turnsSettled += 1;
+					if (turnsSettled >= commands.length) finish(undefined);
+					else sendNext();
+				}
 			}
 		});
 		child.stderr.on("data", (chunk) => {
@@ -202,6 +227,13 @@ function runPiRpc(cwd, commands, timeoutMs) {
 
 		sendNext();
 	});
+}
+
+/** Message content is either a plain string or an array of blocks, depending on the message kind. */
+function collectBlockText(content) {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content.filter((block) => block && block.type === "text").map((block) => block.text).join("\n");
 }
 
 function collectAssistantThinking(records) {
@@ -226,6 +258,18 @@ function collectFinalAnswerText(records) {
 		if (!message || message.role !== "assistant") continue;
 		const text = (message.content ?? []).filter((block) => block.type === "text").map((block) => block.text).join("\n");
 		if (text.trim().length > 0) last = text;
+	}
+	return last;
+}
+
+/** Block types of the last assistant message, in order, so placement can be checked positionally. */
+function finalAssistantBlockTypes(records) {
+	let last = [];
+	for (const record of records) {
+		if (record.type !== "message_end") continue;
+		const message = record.message;
+		if (!message || message.role !== "assistant") continue;
+		last = (message.content ?? []).map((block) => block.type);
 	}
 	return last;
 }
@@ -305,8 +349,34 @@ function runPi(args, timeoutMs, cwd, env) {
 	});
 }
 
+/**
+ * A marker counts as present when the answer carries the tag itself or the natural-language label the
+ * harness renders in its place (`placement: "answer"` never shows a marker token to the user).
+ *
+ * `<answer>` is the one marker the harness always removes without replacing it - the conclusion gets no
+ * label - so its presence cannot be asserted as a token. What it actually guarantees is that a conclusion
+ * survives the structure, so it is checked as "text remains after the last structural section".
+ */
 function missingMarkers(text, markers) {
-	return markers.filter((marker) => !text.includes(marker));
+	const structural = markers.filter((marker) => marker !== "<answer>");
+	const missing = structural.filter((marker) => {
+		if (text.includes(marker)) return false;
+		return !(text.includes(markerHeading(marker, "en")) || text.includes(markerHeading(marker, "zh")));
+	});
+
+	if (!markers.includes("<answer>")) return missing;
+	if (text.includes(markerHeading("<answer>", "en")) || text.includes(markerHeading("<answer>", "zh"))) return missing;
+
+	let lastSectionEnd = -1;
+	for (const marker of structural) {
+		for (const needle of [marker, markerHeading(marker, "en"), markerHeading(marker, "zh")]) {
+			const at = text.lastIndexOf(needle);
+			if (at >= 0 && at + needle.length > lastSectionEnd) lastSectionEnd = at + needle.length;
+		}
+	}
+	const conclusion = lastSectionEnd >= 0 ? text.slice(lastSectionEnd).trim() : text.trim();
+	if (conclusion.length >= 40) return missing;
+	return [...missing, "<answer> (no conclusion after the structure)"];
 }
 
 async function checkParadigm(entry) {
@@ -382,7 +452,7 @@ async function checkOption(entry) {
 		if (handled.data?.disposition !== "handled") {
 			return { id: entry.paradigm, ok: false, detail: `/think <prose> returned '${handled.data?.disposition}', not 'handled': the extension command did not run` };
 		}
-		const missing = paradigm.markers.filter((marker) => !allText.includes(marker));
+		const missing = missingMarkers(allText, paradigm.markers);
 		if (missing.length > 0) {
 			const typeCounts = {};
 			for (const record of records) {
@@ -401,11 +471,46 @@ async function checkOption(entry) {
 	if (entry.paradigm.startsWith("startup:")) {
 		const startup = (entry.agentConfig ?? entry.config).startup;
 		const paradigm = resolveParadigm(startup);
-		const missing = paradigm.markers.filter((marker) => !allText.includes(marker));
+		const missing = missingMarkers(allText, paradigm.markers);
 		if (missing.length > 0) {
 			return { id: entry.paradigm, ok: false, detail: `config startup did not pin the paradigm; missing markers: ${missing.join(", ")} | answer ${allText.trim().length} chars | head: ${allText.slice(0, 240).replace(/\s+/g, " ")}` };
 		}
 		return { id: entry.paradigm, ok: true, detail: `${entry.agentConfig ? "<agentDir>/pi-think-different.json" : ".pi/pi-think-different.json"} startup pinned ${paradigm.id} without any flag; ${paradigm.markers.length} markers present` };
+	}
+
+	if (entry.paradigm === "random:switch") {
+		// The per-turn reminder is what carries a switched paradigm into the model's context.
+		const reminders = [];
+		for (const record of records) {
+			if (record.type !== "message_end") continue;
+			const message = record.message;
+			if (!message || message.role !== "custom" || message.customType !== "think_paradigm") continue;
+			const text = collectBlockText(message.content);
+			const match = text.match(/Thinking paradigm for this turn: ([\w-]+)/);
+			if (match) reminders.push({ id: match[1], switched: text.includes("It replaced") });
+		}
+		const distinct = new Set(reminders.map((reminder) => reminder.id));
+		if (reminders.length < 2) {
+			return { id: entry.paradigm, ok: false, detail: `expected a per-turn paradigm reminder on each of the 2 turns, found ${reminders.length}: ${JSON.stringify(reminders)}` };
+		}
+		if (distinct.size < 2) return { id: entry.paradigm, ok: false, detail: `random mode kept the same paradigm across turns: ${reminders.map((r) => r.id).join(", ")}` };
+		if (!reminders.some((reminder) => reminder.switched)) return { id: entry.paradigm, ok: false, detail: `paradigm changed but the switch was never announced: ${reminders.map((r) => r.id).join(", ")}` };
+		const answered = collectFinalAnswerText(records).trim().length > 0;
+		if (!answered) return { id: entry.paradigm, ok: false, detail: `no answer produced while switching paradigms` };
+		return { id: entry.paradigm, ok: true, detail: `random mode named a different paradigm on each turn (${[...distinct].join(", ")}) and announced the switch` };
+	}
+
+	if (entry.paradigm === "mandate:trivial") {
+		const paradigm = resolveParadigm("angles");
+		const missing = missingMarkers(allText, paradigm.markers);
+		if (missing.length > 0) {
+			return {
+				id: entry.paradigm,
+				ok: false,
+				detail: `a trivial prompt got a direct answer with no ${paradigm.id} structure; missing markers: ${missing.join(", ")} | answer ${answer.trim().length} chars | head: ${answer.slice(0, 240).replace(/\s+/g, " ")}`,
+			};
+		}
+		return { id: entry.paradigm, ok: true, detail: `trivial prompt still ran ${paradigm.id} with no redo requested; ${paradigm.markers.length} markers present, ${allText.trim().length} chars` };
 	}
 
 	// placement: "thinking"
@@ -413,6 +518,14 @@ async function checkOption(entry) {
 	const treeMarker = paradigm.markers[0];
 	if (answer.includes(treeMarker)) {
 		return { id: entry.paradigm, ok: false, detail: `visible answer still carries the structure: ${answer.slice(0, 300).replace(/\s+/g, " ")}` };
+	}
+	if (answer.includes("<answer>") || answer.includes("</answer>")) {
+		return { id: entry.paradigm, ok: false, detail: `visible answer still wrapped in an answer block: ${answer.slice(0, 200).replace(/\s+/g, " ")}` };
+	}
+	const blockTypes = finalAssistantBlockTypes(records);
+	const lastTextAt = blockTypes.lastIndexOf("text");
+	if (lastTextAt >= 0 && blockTypes.slice(lastTextAt + 1).includes("thinking")) {
+		return { id: entry.paradigm, ok: false, detail: `thinking landed after the answer: ${blockTypes.join(", ")}` };
 	}
 	const structureEvidence = thinking.includes(treeMarker) || allText.includes(treeMarker);
 	const conclusionOnly = answer.trim().length >= 200;

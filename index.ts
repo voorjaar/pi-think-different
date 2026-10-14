@@ -35,16 +35,16 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { AssistantMessage, TextContent, ThinkingContent } from "@earendil-works/pi-ai";
+import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-import { selectParadigm } from "./autoSelect.ts";
+import { selectParadigm, pickRandom } from "./autoSelect.ts";
 import { DEFAULT_CONFIG, configLayerPaths, mergeConfigs, parseConfigText, resolveAgentDir, type Language, type Placement, type ThinkConfig } from "./config.ts";
-import { extractStructure } from "./placement.ts";
+import { extractStructure, markerTokens, naturalizeMarkers, placeStructureBeforeAnswer, stripMarkerDebris, unwrapAnswerBlocks, type PlacementBlock } from "./placement.ts";
 import { listParadigms, resolveParadigm, type Intensity, type Paradigm, type ParadigmStep } from "./paradigms.ts";
-import { intensityFor, parseThinkArgs, renderSection, renderScaffoldForTask, SECTION_TAG } from "./render.ts";
-import { autoSelectionMessage, ambiguousCueMessage, configPathsMessage, configProblemMessage, cueResolvedMessage, describeState, helpLines, paradigmName, renderList, statusLabel, t, unknownParadigmMessage } from "./ui.ts";
+import { intensityFor, parseThinkArgs, renderSection, renderScaffoldForTask, renderTurnReminder, SECTION_TAG } from "./render.ts";
+import { autoSelectionMessage, autoSelectionSkippedMessage, ambiguousCueMessage, completionItems, configPathsMessage, configProblemMessage, cueResolvedMessage, describeState, helpLines, paradigmName, randomSelectionMessage, renderList, statusLabel, t, unknownParadigmMessage } from "./ui.ts";
 import { renderWorkflowResult, runWorkflow, type ModelCallResult } from "./workflow.ts";
 
 const ENTRY_TYPE = "think-different";
@@ -62,7 +62,7 @@ function configLayers(cwd: string): { kind: "extension" | "agent" | "project"; p
 	return configLayerPaths(EXT_DIR, resolveAgentDir(process.env, homedir()), cwd);
 }
 
-type ThinkMode = "off" | "sticky" | "once" | "auto";
+type ThinkMode = "off" | "sticky" | "once" | "auto" | "random";
 
 interface ThinkState {
 	mode: ThinkMode;
@@ -105,6 +105,10 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 	let configProblems: { file: string; problem: string }[] = [];
 	/** The paradigm whose contract was injected this turn, if any. */
 	let injectedParadigm: Paradigm | undefined;
+	/** The paradigm named in the previous turn, so a switch can be announced instead of implied. */
+	let lastInjectedParadigmId: string | undefined;
+	/** Last `/think random` pick, so the same paradigm is not chosen two turns in a row. */
+	let lastRandomPickId: string | undefined;
 
 	function describe(): string {
 		return describeState({
@@ -117,13 +121,22 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 		});
 	}
 
+	/**
+	 * The paradigm the status bar should name. For auto and random there is no stored paradigm id - what
+	 * matters is the one actually armed for this turn, so the bar cannot lag behind the reasoning.
+	 */
+	function shownParadigm(): Paradigm | undefined {
+		return resolveParadigm(state.paradigmId) ?? injectedParadigm;
+	}
+
 	function updateStatus(ctx: ExtensionContext): void {
 		if (!ctx.hasUI) return;
 		if (state.mode === "off") {
 			ctx.ui.setStatus(STATUS_KEY, undefined);
 			return;
 		}
-		ctx.ui.setStatus(STATUS_KEY, statusLabel({ lang: state.language, mode: state.mode, paradigm: resolveParadigm(state.paradigmId), paradigmId: state.paradigmId, intensity: state.intensity, placement: state.placement }));
+		const paradigm = shownParadigm();
+		ctx.ui.setStatus(STATUS_KEY, statusLabel({ lang: state.language, mode: state.mode, paradigm, paradigmId: paradigm?.id, intensity: state.intensity, placement: state.placement }));
 	}
 
 	function persist(): void {
@@ -186,6 +199,10 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 			state = { ...state, mode: "auto" };
 			return;
 		}
+		if (lower === "random" || lower === "随机") {
+			state = { ...state, mode: "random" };
+			return;
+		}
 		const paradigm = resolveParadigm(startup);
 		if (paradigm) state = { ...state, mode: "sticky", paradigmId: paradigm.id };
 		else configProblems.push({ file: "startup", problem: `unknown paradigm '${startup}'` });
@@ -227,11 +244,12 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 		}
 
 		if (typeof flag === "string" && flag.trim().length > 0) {
-			const auto = flag.trim().toLowerCase() === "auto";
-			const paradigm = auto ? undefined : resolveParadigm(flag);
-			if (auto) state = { ...state, mode: "auto" };
+			const value = flag.trim().toLowerCase();
+			const paradigm = value === "auto" || value === "random" ? undefined : resolveParadigm(flag);
+			if (value === "auto") state = { ...state, mode: "auto" };
+			else if (value === "random") state = { ...state, mode: "random" };
 			else if (paradigm) state = { ...state, mode: "sticky", paradigmId: paradigm.id };
-			else ctx.ui.notify(t(state.language, `Unknown --think value '${flag}'. Try: ${listParadigms().map((p) => p.id).join(", ")} | auto`, `未知的 --think 参数「${flag}」。可选：${listParadigms().map((p) => p.id).join(", ")} | auto`), "warning");
+			else ctx.ui.notify(t(state.language, `Unknown --think value '${flag}'. Try: ${listParadigms().map((p) => p.id).join(", ")} | auto | random`, `未知的 --think 参数「${flag}」。可选：${listParadigms().map((p) => p.id).join(", ")} | auto | random`), "warning");
 		}
 
 		if (ctx.hasUI) {
@@ -262,10 +280,25 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 
 		if (state.mode === "auto") {
 			const selection = selectParadigm(prompt);
-			paradigm = selection.paradigm;
-			origin = `auto: ${selection.score}`;
-		if (paradigm && ctx.hasUI) {
-				ctx.ui.notify(autoSelectionMessage(state.language, paradigm, selection.reasons), "info");
+			// Auto never means "none": when nothing clears the threshold, commit to the best-scoring
+			// paradigm and say the score was low.
+			paradigm = selection.paradigm ?? selection.best;
+			origin = `auto: ${selection.score}${selection.confident ? "" : " (low score)"}`;
+			if (paradigm && ctx.hasUI) {
+				ctx.ui.notify(autoSelectionMessage(state.language, paradigm, selection.reasons, selection.confident), "info");
+			} else if (!paradigm && ctx.hasUI) {
+				// An armed auto mode that selects nothing must say so; silence here reads as "auto is broken".
+				ctx.ui.notify(autoSelectionSkippedMessage(state.language, selection.score, selection.reasons), "info");
+			}
+		}
+
+		if (state.mode === "random") {
+			const picked = pickRandom(listParadigms(), lastRandomPickId);
+			if (picked) {
+				lastRandomPickId = picked.id;
+				paradigm = picked;
+				origin = "random";
+				if (ctx.hasUI) ctx.ui.notify(randomSelectionMessage(state.language, picked), "info");
 			}
 		}
 
@@ -276,14 +309,31 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 
 		const task = pendingTask;
 		pendingTask = undefined;
+		const switchedFrom = lastInjectedParadigmId && lastInjectedParadigmId !== paradigm.id ? lastInjectedParadigmId : undefined;
+		lastInjectedParadigmId = paradigm.id;
 		injectedParadigm = paradigm;
+		if (switchedFrom && state.mode === "random") origin = `random: ${switchedFrom} → ${paradigm.id}`;
 		event.systemPromptOptions.sections[SECTION_TAG] = renderSection(paradigm, state.intensity, state.placement, origin, task);
+
+		// The bar names the paradigm this turn actually runs, including the auto / random pick.
+		updateStatus(ctx);
 
 		if (state.mode === "once") {
 			state = { ...state, mode: "off", paradigmId: undefined };
 			updateStatus(ctx);
 			persist();
 		}
+
+		// The contract only reaches the model as a changed system-prompt section, while the conversation
+		// still carries every reply written under the previous paradigm. Name the paradigm in the turn.
+		return {
+			message: {
+				customType: "think_paradigm",
+				content: [{ type: "text", text: renderTurnReminder(paradigm, state.placement, switchedFrom) }],
+				display: false,
+				details: { paradigm: paradigm.id, origin, switchedFrom },
+			},
+		};
 	});
 
 	// ------------------------------------------------------- structure placement
@@ -293,8 +343,33 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 	 * visible answer anyway, cut it out of the answer and hand it back as a thinking block, so the
 	 * answer the user reads carries only the conclusion.
 	 */
+	/**
+	 * Rewrite marker spans as bold labels wherever the user reads them, including the thinking block.
+	 *
+	 * The model still writes markers verbatim - that is what makes a paradigm verifiable - but the
+	 * rendering is ours: labels are bold text, never `###` headings. `hats` is left alone entirely; its
+	 * emoji lines are already the readable form.
+	 */
+	function naturalizeThinkingBlocks(content: AssistantMessage["content"], paradigm: Paradigm, language: Language): AssistantMessage["content"] {
+		if (paradigm.verbatimMarkers) return content;
+		return content.map((block) =>
+			block.type === "thinking" && block.thinking !== undefined && block.thinking.trim().length > 0
+				? { ...block, thinking: naturalizeMarkers(block.thinking, paradigm, language) }
+				: block,
+		);
+	}
+
+	function contentChanged(before: AssistantMessage["content"], after: AssistantMessage["content"]): boolean {
+		return after.some((block, index) => {
+			const original = before[index];
+			if (!original || block.type !== original.type) return false;
+			if (block.type === "text" && original.type === "text") return block.text !== original.text;
+			if (block.type === "thinking" && original.type === "thinking") return block.thinking !== original.thinking;
+			return false;
+		});
+	}
+
 	pi.on("message_end", async (event) => {
-		if (state.placement !== "thinking") return undefined;
 		const paradigm = injectedParadigm;
 		if (!paradigm) return undefined;
 
@@ -304,15 +379,52 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 		const textBlocks = message.content.filter((block): block is TextContent => block.type === "text");
 		if (textBlocks.length === 0) return undefined;
 
-		const relocated = extractStructure(textBlocks.map((block) => block.text).join("\n\n"), paradigm);
-		if (!relocated.structure) return undefined;
+		if (state.placement === "answer") {
+			// The model writes markers because they are verifiable; the user reads bold labels instead - in the
+			// answer and in the thinking block alike.
+			const cleaned = naturalizeThinkingBlocks(
+				message.content.map((block) => (block.type === "text" ? { ...block, text: naturalizeMarkers(block.text, paradigm, state.language) } : block)),
+				paradigm,
+				state.language,
+			);
+			if (!contentChanged(message.content, cleaned)) return undefined;
+			return { message: { ...message, content: cleaned as AssistantMessage["content"] } };
+		}
 
-		const thinking: ThinkingContent = { type: "thinking", thinking: relocated.structure };
-		const rest = message.content.filter((block) => block.type !== "text");
+		const joined = textBlocks.map((block) => block.text).join("\n\n");
+		const relocated = extractStructure(joined, paradigm, { unwrapAnswer: true });
+
+		if (!relocated.structure) {
+			// The model obeyed the contract and put the structure in its thinking. What can still leak into
+			// the answer is scaffolding rather than content: <answer> wrappers, a stray closing tag, a bare
+			// `angle:pragmatist` line. Strip those so the answer reads as prose.
+			const cleaned = naturalizeThinkingBlocks(
+				message.content.map((block) =>
+					block.type === "text" ? { ...block, text: stripMarkerDebris(unwrapAnswerBlocks(block.text), markerTokens(paradigm)) } : block,
+				),
+				paradigm,
+				state.language,
+			);
+			if (!contentChanged(message.content, cleaned)) return undefined;
+			return { message: { ...message, content: cleaned as AssistantMessage["content"] } };
+		}
+
+		// Marker scraps that survive relocating the spans are dropped from the answer for the same reason.
+		const stripped = stripMarkerDebris(relocated.text, markerTokens(paradigm));
+		const answerText = stripped.trim().length > 0 ? stripped : relocated.text;
+
+		// Rebuild in the model's original block order, with the extracted structure folded into the
+		// thinking that already precedes the answer (see placeStructureBeforeAnswer).
+		const placed = placeStructureBeforeAnswer(
+			message.content as (AssistantMessage["content"][number] & PlacementBlock)[],
+			naturalizeMarkers(relocated.structure, paradigm, state.language),
+			answerText,
+		) as AssistantMessage["content"];
+
 		return {
 			message: {
 				...message,
-				content: [thinking, { type: "text", text: relocated.text } as TextContent, ...rest],
+				content: naturalizeThinkingBlocks(placed, paradigm, state.language),
 			},
 		};
 	});
@@ -320,15 +432,8 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 	// --------------------------------------------------------------- command
 
 	pi.registerCommand("think", {
-		description: "Switch the thinking paradigm: cot | tot | got | critique | hypothesis | hats | debate | first-principles | angles | auto | once | off | list",
-		getArgumentCompletions: (argumentPrefix) => {
-			const words = ["list", "status", "off", "auto", "once", "help", "config", "lang", "placement", "light", "standard", "deep", ...listParadigms().map((p) => p.id)];
-			const prefix = argumentPrefix.trim().toLowerCase();
-			return words
-				.filter((word) => word.startsWith(prefix) || prefix.length === 0)
-				.slice(0, 12)
-				.map((word) => ({ value: `/think ${word}`, label: word }));
-		},
+		description: "Switch the thinking paradigm: cot | tot | got | critique | hypothesis | hats | debate | first-principles | angles | auto | random | once | off | list",
+		getArgumentCompletions: (argumentPrefix) => completionItems(state.language, argumentPrefix),
 		handler: async (args, ctx) => {
 			const parsed = parseThinkArgs(args);
 
@@ -385,6 +490,10 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 					applyState({ ...state, mode: "auto", intensity: parsed.intensity ?? state.intensity }, ctx);
 					ctx.ui.notify(describe(), "info");
 					return;
+				case "random":
+					applyState({ ...state, mode: "random", paradigmId: undefined, intensity: parsed.intensity ?? state.intensity }, ctx);
+					ctx.ui.notify(describe(), "info");
+					return;
 				case "once":
 					if (!parsed.paradigm) {
 						ctx.ui.notify(t(state.language, "Usage: /think once <paradigm>", "用法：/think once <范式>"), "warning");
@@ -419,8 +528,11 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 		const lang = state.language;
 		if (ctx.hasUI && ctx.mode === "tui") {
 			const options = [
-				...listParadigms().map((p) => `${p.emoji} ${p.id} · ${paradigmName(p, lang)}`),
+				// paradigmName already carries emoji + id + title, so prefixing them again prints each
+				// option twice: "🧠 cot · 🧠 cot (Chain of Thought)".
+				...listParadigms().map((p) => paradigmName(p, lang)),
 				t(lang, "🎯 auto (pick per prompt)", "🎯 auto（每个提示词自动选）"),
+				t(lang, "🎲 random (a different paradigm every turn)", "🎲 random（每回合换一个范式）"),
 				t(lang, "⏹ off", "⏹ 关闭"),
 			];
 			const choice = await ctx.ui.select(t(lang, "Thinking paradigm", "思考范式"), options);
@@ -438,7 +550,12 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify(describe(), "info");
 				return;
 			}
-			const pickedId = choice.split(" ")[1];
+			if (choice.startsWith("🎲")) {
+				applyState({ ...state, mode: "random", paradigmId: undefined }, ctx);
+				ctx.ui.notify(describe(), "info");
+				return;
+			}
+			const pickedId = choice.trim().split(/[\s(（]+/)[1];
 			const paradigm = resolveParadigm(pickedId);
 			if (!paradigm) {
 				ctx.ui.notify(describe(), "info");

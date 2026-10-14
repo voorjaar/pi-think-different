@@ -13,9 +13,28 @@ export { renderList } from "./ui.ts";
 /** Section tag name used in the structured system prompt. */
 export const SECTION_TAG = "thinking_paradigm";
 
-const SKIP_CLAUSE =
-	"Escape hatch: if the request is trivial - a lookup, a rename, a one-line edit, a direct shell command, small talk - skip this structure entirely and answer normally. " +
-	"Apply the structure to the substantive part only, and never repeat it across turns of the same trivial exchange.";
+const MANDATE_CLAUSE =
+	"Application rule, no exceptions: while this paradigm is active, every reply you give in this session is produced through this structure - including a short, trivial, factual, or one-line one. " +
+	"A direct answer with no structure is not an acceptable reply: the paradigm is a standing instruction you accepted, not a filter you apply when a request looks substantial enough. " +
+	"Only the paradigm named in this section applies now; a paradigm named in an earlier turn is expired, and the structure in your earlier replies is finished output, not a pattern to keep copying. " +
+	"Keep a trivial reply short inside the structure, never outside it, and never comment about the structure itself - just run it.";
+
+/**
+ * The per-turn reminder, injected as a message alongside the user prompt.
+ *
+ * The paradigm contract travels as a *diff* of system-prompt sections, so a switch is one changed
+ * section in a long context that still holds every earlier reply written under the old paradigm. In
+ * real sessions the model kept running the previous paradigm - `<thought_tree>` under `cot` and
+ * `debate` - because its own history was the strongest signal. Naming the paradigm inside the turn is
+ * what makes the switch land.
+ */
+export function renderTurnReminder(paradigm: Paradigm, placement: Placement, switchedFrom?: string): string {
+	const where = placement === "thinking" ? "inside your thinking block" : "in your answer";
+	const head = switchedFrom
+		? `Thinking paradigm for this turn: ${paradigm.id} (${paradigm.title}). It replaced ${switchedFrom}: that paradigm is finished, and the structure in your earlier replies is its output, not a pattern to continue.`
+		: `Thinking paradigm for this turn: ${paradigm.id} (${paradigm.title}).`;
+	return `${head} Run it now, with its markers verbatim (${paradigm.markers.join(", ")}) ${where}. Do not reuse another paradigm's markers or section names.`;
+}
 
 export function intensityFor(value: string | undefined, fallback: Intensity = "standard"): Intensity {
 	return isIntensity(value) ? value : fallback;
@@ -42,10 +61,10 @@ export function renderSection(paradigm: Paradigm, intensity: Intensity, placemen
 		header,
 		`Required markers, verbatim: ${paradigm.markers.join(", ")}. A substantive answer that omits any of them did not run this paradigm.`,
 		"Marker discipline: write every marker exactly as spelled, each one starting its own section. Do not substitute a heading, a bold label, or a different emoji, and do not merge two sections into one.",
-		"Apply this thinking paradigm to substantive work in this session.",
+		"Apply this thinking paradigm to every reply in this session, not to the substantive part only.",
 	];
 	if (task) parts.push(`Concrete task for this turn: ${task}`);
-	parts.push(renderBody(paradigm, intensity), placementClause(placement, paradigm), SKIP_CLAUSE);
+	parts.push(renderBody(paradigm, intensity), placementClause(placement, paradigm), MANDATE_CLAUSE);
 	return parts.join("\n\n");
 }
 
@@ -64,7 +83,7 @@ export function renderScaffoldForTask(paradigm: Paradigm, intensity: Intensity, 
 /** Human-readable catalogue lives in ui.ts because it is localized. */
 
 export interface ThinkArgs {
-	action: "help" | "list" | "status" | "off" | "auto" | "once" | "set" | "intensity" | "language" | "placement" | "config";
+	action: "help" | "list" | "status" | "off" | "auto" | "random" | "once" | "set" | "intensity" | "language" | "placement" | "config";
 	paradigm?: Paradigm;
 	paradigmName?: string;
 	intensity?: Intensity;
@@ -99,8 +118,8 @@ export function parseThinkArgs(raw: string): ThinkArgs {
 
 	for (const token of tokens) {
 		const lower = token.toLowerCase();
-		if (action === "set" && (lower === "help" || lower === "list" || lower === "status" || lower === "off" || lower === "auto" || lower === "once" || lower === "config")) {
-			action = lower as ThinkArgs["action"];
+		if (action === "set" && (lower === "help" || lower === "list" || lower === "status" || lower === "off" || lower === "auto" || lower === "random" || lower === "随机" || lower === "once" || lower === "config")) {
+			action = lower === "随机" ? "random" : (lower as ThinkArgs["action"]);
 			continue;
 		}
 		if (action === "set" && (lower === "lang" || lower === "language" || lower === "语言")) {

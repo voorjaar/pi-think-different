@@ -3,8 +3,9 @@
 	// Precedence (later wins): config.json < ~/.pi/agent/pi-think-different.json
 	// < <repo>/.pi/pi-think-different.json < --think < /think in the session.
 
-	// What a session starts with: a paradigm id or alias, "auto", or "off".
-	// Examples: "tot", "六顶思考帽", "first-principles", "auto", "off".
+	// What a session starts with: a paradigm id or alias, "auto", "random", or "off".
+	// Examples: "tot", "六顶思考帽", "first-principles", "auto", "random", "off".
+	// "auto" always commits to the best-scoring paradigm; "random" picks a different one every turn.
 	"startup": "off",
 
 	// light | standard | deep
@@ -12,8 +13,8 @@
 
 	// "answer":   the paradigm's structure is shown in the visible answer.
 	// "thinking": the structure stays in the thinking block and the answer
-	//             carries only the conclusion.
-	"placement": "answer",
+	//             carries only the conclusion. This is the default.
+	"placement": "thinking",
 
 	// en | zh - language used by /think menus, help, status, and notifications.
 	// "zh-cn", "chinese", and "中文" are accepted spellings too.
