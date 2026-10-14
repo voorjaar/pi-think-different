@@ -19,11 +19,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+http://macminion.local:4096/voorjaar/pi-think-different.git"
+    "url": "git+https://github.com/voorjaar/pi-think-different.git"
   },
   "homepage": "https://github.com/voorjaar/pi-think-different",
   "bugs": {
-    "url": "http://macminion.local:4096/voorjaar/pi-think-different/issues"
+    "url": "https://github.com/voorjaar/pi-think-different/issues"
   },
   "files": [
     "src/",
