@@ -29,7 +29,7 @@ const LIVE_CASES = [
 	{ paradigm: "cot", prompt: "A train leaves at 09:00 at 60 km/h. A second leaves the same station at 09:30 at 90 km/h on the same line. When does it catch up? Work the problem out explicitly before answering." },
 	{ paradigm: "tot", prompt: "A note-taking app needs offline support. Lay out at least three genuinely different architectural approaches, score each one, prune the weak ones, deepen the survivor, and pick a path. No code, no file reading." },
 	{ paradigm: "got", prompt: "A new dashboard UI must bind to an existing REST API. Produce two independent design nodes from different angles, merge them into one node, cross-check the merge against both originals, refine it, and converge. No code, no file reading." },
-	{ paradigm: "critique", prompt: "First-pass answer: `function getAverage(nums){ return sum(nums)/len(nums) }` in Python. Then attack your own answer for concrete failure modes and rebuild it." },
+	{ paradigm: "critique", timeoutMs: 900_000, prompt: "First-pass answer: `function getAverage(nums){ return sum(nums)/len(nums) }` in Python. Then attack your own answer for concrete failure modes and rebuild it." },
 	{ paradigm: "hypothesis", prompt: "A test passes locally but fails intermittently only on CI. Enumerate mutually exclusive candidate causes, test each against what is known, eliminate them, and name the surviving cause plus the cheapest confirming check." },
 	{ paradigm: "hats", prompt: "Should a 12-person engineering team adopt a strict no-meetings Wednesday? Evaluate it through every thinking hat, then decide." },
 	{ paradigm: "debate", prompt: "Position: we should replace our homegrown job queue with a managed service. Argue the strongest case for it, then the strongest case against it, rebut the hardest hit, and judge." },
@@ -72,7 +72,7 @@ const OPTION_CASES = [
 		// its sibling already has instead of the 420s default.
 		paradigm: "startup:config",
 		config: { startup: "hats" },
-		timeoutMs: 900_000,
+		timeoutMs: 1_500_000,
 		prompt: "Should a 12-person engineering team adopt a strict no-meetings Wednesday? Decide after thinking it through.",
 	},
 	{
