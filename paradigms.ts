@@ -378,6 +378,8 @@ The surviving cause, the confidence level, and the single cheapest next check th
 🟢 Green (alternatives): at least two different ways to get the same goal, including a cheaper or smaller one.
 🔵 Blue (control): the decision, the conditions that would change it, and the next actions with owners.
 
+Six sections, one per hat, each opening with its emoji exactly as written above. ⚫ Black is its own section even if risk already appeared under another hat - naming a risk somewhere else does not count as the black hat, and a hat you have little to say about still gets at least one line.
+
 <answer>
 The decision and the next actions.
 </answer>`,

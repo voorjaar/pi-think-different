@@ -41,6 +41,7 @@ export function renderSection(paradigm: Paradigm, intensity: Intensity, placemen
 	const parts = [
 		header,
 		`Required markers, verbatim: ${paradigm.markers.join(", ")}. A substantive answer that omits any of them did not run this paradigm.`,
+		"Marker discipline: write every marker exactly as spelled, each one starting its own section. Do not substitute a heading, a bold label, or a different emoji, and do not merge two sections into one.",
 		"Apply this thinking paradigm to substantive work in this session.",
 	];
 	if (task) parts.push(`Concrete task for this turn: ${task}`);
@@ -53,6 +54,7 @@ export function renderScaffoldForTask(paradigm: Paradigm, intensity: Intensity, 
 	return [
 		`Thinking paradigm: ${paradigm.emoji} ${paradigm.title} (${paradigm.id}) - intensity ${intensity}.`,
 		`Required markers, verbatim: ${paradigm.markers.join(", ")}.`,
+		"Write every marker exactly as spelled, each one starting its own section; never merge two sections into one.",
 		`Task: ${task}`,
 		renderBody(paradigm, intensity),
 		"Work on the task now, following the structure above exactly. Do not restate these instructions.",

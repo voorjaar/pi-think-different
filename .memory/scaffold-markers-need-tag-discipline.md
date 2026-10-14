@@ -27,4 +27,23 @@ loudly. When a live check fails, print the head and tail of the answer, not just
 the difference between "model ignored the paradigm" and "model did the paradigm with different
 punctuation" is only visible in the text.
 
+Keep the markers themselves strict rather than loosening the check to accept "a heading that looks
+like the paradigm": the whole point of markers is that a paradigm which degrades into prose fails
+loudly. When a live check fails, print the head and tail of the answer, not just the missing marker -
+the difference between "model ignored the paradigm" and "model did the paradigm with different
+punctuation" is only visible in the text.
+
+**The second failure mode is merging, not renaming.** A `hats` run wrote ⚪ facts, then folded risk
+into another section, so ⚫ never appeared and the check failed on one marker out of seven. Listing
+markers is not enough on its own; the contract now says, in both `renderSection` and
+`renderScaffoldForTask`:
+
+> Marker discipline: write every marker exactly as spelled, each one starting its own section. Do not
+> substitute a heading, a bold label, or a different emoji, and do not merge two sections into one.
+
+**Treat a single dropped marker as flaky, not as broken wiring.** One model run out of several will
+merge or rename a section. `livecheck.mjs` retries a `missing markers` verdict once and keeps the
+better attempt (fewest missing markers), the same way a timed-out Pi session is retried - otherwise
+model variance masks real regressions in a suite that is supposed to gate commits.
+
 Related: [[thinking-paradigm-two-mechanisms]], [[pi-extension-test-split]]
