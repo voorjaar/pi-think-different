@@ -2,50 +2,25 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-A [Pi](https://github.com/earendil-works/pi) extension that makes the *shape* of the agent's reasoning a user-controllable choice: switch between thinking paradigms (CoT, ToT, GoT, self-critique, hypothesis & elimination, six thinking hats, dialectical debate, first principles, multi-angle sweep) instead of getting one pass of intuition.
+A [Pi](https://github.com/earendil-works/pi) extension that switches the agent's thinking paradigm. It ships with nine built-in paradigms (listed under [Paradigms](#paradigms)), each available two ways - as a contract injected into the system prompt for the whole session, or as a harness-driven multi-pass workflow for a single question.
 
-## Why two mechanisms
+## Features
 
-The reference notes behind this extension make the same point twice: a paradigm can be injected as a
-prompt contract, or it can be *driven* by code. Both are implemented, because they fail differently.
-
-| Mechanism | What it is | Cost | Use when |
-|---|---|---|---|
-| **Injected contract** | `/think <paradigm>` adds a `<thinking_paradigm>` section to the system prompt; every substantive turn of the session reasons in that shape | one prompt section | you want the whole session to reason a certain way |
-| **Real workflow** | `think` tool with `mode: "run"` executes the paradigm as separate model calls, and the harness - not the model - decides which candidates survive | 3-6 model calls | one answer that must be considered, not plausible |
-
-In run mode the control logic stays in code: the harness parses the scores the model reports
-(`Score: 8/10`, `评分：8/10`, `[8/10]`), prunes candidates below 6 itself, and tells the next step
-exactly which candidates it may build on. The model never has to hold a whole tree in its own
-imagination, which is where single-CoT simulations usually collapse.
-
-## Paradigms
-
-| id | 中文 | Shape of problem it fits | run-mode calls |
-|---|---|---|---|
-| `cot` | 思维链 | hard question where a silent wrong answer is expensive | 2 |
-| `tot` | 思维树 | several viable routes, unclear which | 3 |
-| `got` | 思维网 | parts must be merged and cross-checked | 3 |
-| `critique` | 自我批判修正 | output must be correct, not just plausible | 3 |
-| `hypothesis` | 假设排他法 | something is broken and the cause is unknown | 3 |
-| `hats` | 六顶思考帽 | adopt / not adopt, buy / build, policy | 6 |
-| `debate` | 正反辩论 | one side already has the momentum | 4 |
-| `first-principles` | 第一性原理 | the design survives only because "that is how it is done" | 3 |
-| `angles` | 多角度扫描 | reviewing something you just wrote | 4 |
-
-Each paradigm also declares `bestFor`, `cost`, and the structural blocks it must emit
-(`<thought_tree>`, `<draft>` / `<criticism>` / `<refinement>`, ⚪🔴⚫🟡🟢🔵, ...). Those markers are
-what the live checks assert, so a paradigm that silently degrades into prose is caught.
+- Nine paradigms (listed under [Paradigms](#paradigms)), each with a prompt contract and a multi-pass workflow.
+- `/think` command: pin a paradigm, apply it to one turn, name the task in the same command, or write the request as a plain sentence.
+- `/think auto` picks a paradigm per prompt by scoring the prompt; `/think random` rotates paradigms.
+- Three intensities: `light`, `standard`, `deep`.
+- Session language (`en` / `zh`) and structure placement (`answer` / `thinking`).
+- `think` tool with `mode: "run"`: the harness parses reported scores, prunes weak candidates itself, and tells the next step what it may build on.
+- Bundled skill (`skills/think-different/SKILL.md`) so the agent knows which paradigm fits which problem shape.
 
 ## Installation
-
-Drop the directory into Pi's extension folder (it is loaded automatically because it contains `index.ts`):
 
 ```bash
 cp -r pi-think-different ~/.pi/agent/extensions/
 ```
 
-No build step: Pi loads TypeScript directly. No dependencies beyond Pi itself.
+Pi loads `index.ts` directly: no build step, no dependencies beyond Pi itself.
 
 ## Usage
 
@@ -53,43 +28,68 @@ No build step: Pi loads TypeScript directly. No dependencies beyond Pi itself.
 /think                       status (picker in interactive mode)
 /think list                  catalogue with best-fit guidance
 /think tot                   pin Tree of Thoughts for this session
-/think 六顶思考帽              same as /think hats (Chinese aliases work)
+/think hats                  pin the six thinking hats (Chinese aliases work too)
 /think once critique         apply self-critique to the next turn only
-/think tot design a cache    pin the paradigm and name the problem to think about
-/think auto                  pick a paradigm per prompt by heuristic
-/think deep                  raise intensity of the current paradigm
+/think tot design a cache    pin the paradigm and answer this question with it now
+/think auto                  pick a paradigm per prompt (always picks one)
+/think random                a different paradigm every turn
+/think deep                  raise the intensity of the current paradigm
 /think lang zh               menus, help, and status in Chinese (en to switch back)
 /think placement thinking    keep the structure in the thinking block, answer only the conclusion
 /think config                show which config files are in play and their values
 /think off                   back to default Pi reasoning
 ```
 
-You do not have to name the paradigm as a token. If the arguments are prose, the text is scanned for
-a paradigm cue and whatever is left becomes the task:
+A paradigm does not have to be named as a token. When the arguments read like a sentence, the text is scanned for a paradigm cue and the rest becomes the task:
 
 ```text
-/think 以六顶思考帽的方式思考俄乌战争的结果      → hats, task 俄乌战争的结果
-/think rethink our polling from first principles  → first-principles, task rethink our polling
-/think 用思维树和六顶思考帽分析这个迁移          → ambiguous: it names two paradigms, so it asks
+/think rethink our polling from first principles    -> first-principles, task: rethink our polling
+/think use six hats on the migration plan           -> hats, task: the migration plan
+/think with a thought tree and the six hats ...     -> ambiguous: two paradigms named, so it asks
 ```
 
-Cues are the registry's own vocabulary (`id`, aliases, titles, plus a `cues` list per paradigm),
-longest match wins, and Latin cues need a word boundary - `treewidth` does not select `tot`. When two
-different paradigms match, `/think` refuses to guess and asks you to name one.
+Text after the paradigm is the concrete problem to think about, and `/think tot design a cache` starts the turn immediately. Without a task, the paradigm is only pinned and the next prompt uses it.
 
-Free text after the paradigm is the concrete problem to think about. With a task, `/think` starts the
-turn immediately - `/think tot design a cache` pins Tree of Thoughts and answers "design a cache" in the
-same command. Without a task it only pins the paradigm, and the next prompt you send uses it (that is
-also when the task is injected as "Concrete task for this turn").
-
-Intensities: `light` (compact contract), `standard` (full contract), `deep` (full contract plus extra
-required coverage).
-
-Start a headless or scripted session with a paradigm already on:
+Headless and scripted sessions can start with a paradigm already on:
 
 ```bash
 pi --mode json --think tot -p "Design offline support for a note app"
 ```
+
+### The `think` tool
+
+Structured reasoning for the current turn (`scaffold`), or the harness-driven multi-pass workflow (`run`):
+
+```json
+{ "task": "cache-aside or write-through?", "paradigm": "tot", "mode": "run" }
+```
+
+Run-mode output is labelled step by step and states what was pruned and why:
+
+```text
+Harness gate (external control): pruned Branch_B (3/10). Build only on: Branch_A (9/10).
+```
+
+That gate is computed by the harness from the reported scores, not asserted by the model.
+
+### Notes
+
+- While a paradigm is active, every reply uses it - including a lookup, a rename, or a one-line edit. Triviality shortens the structure, it never removes it.
+- The model writes structural markers (`<thought_tree>`, `<draft>`, the six hat emoji) so a paradigm that degrades into prose is detectable; the harness renders them as bold labels in the session language (`**Adversary angle**`, or its Chinese equivalent) and never shows a marker token. `hats` is shown exactly as the model wrote it.
+
+## Paradigms
+
+| id | name | shape of problem it fits | run-mode calls |
+|---|---|---|---|
+| `cot` | Chain of Thought | hard question where a silent wrong answer is expensive | 2 |
+| `tot` | Tree of Thoughts | several viable routes, unclear which | 3 |
+| `got` | Graph of Thoughts | parts must be merged and cross-checked | 3 |
+| `critique` | Self-Critique and Refinement | output must be correct, not just plausible | 3 |
+| `hypothesis` | Hypothesis and Elimination | something is broken and the cause is unknown | 3 |
+| `hats` | Six Thinking Hats | adopt or not adopt, buy or build, policy calls | 6 |
+| `debate` | Dialectical Debate | one side already has the momentum | 4 |
+| `first-principles` | First Principles | the design survives only because "that is how it is done" | 3 |
+| `angles` | Multi-Angle Sweep | reviewing something you just wrote | 4 |
 
 ## Configuration
 
@@ -97,152 +97,43 @@ Defaults come from three optional JSON files (later wins), and `/think` in the s
 
 ```text
 ~/.pi/agent/extensions/pi-think-different/config.json   the extension author's defaults
-~/.pi/agent/pi-think-different.json                    your defaults for every project
-<repo>/.pi/pi-think-different.json                     per-project override
+~/.pi/agent/pi-think-different.json                     your defaults for every project
+<repo>/.pi/pi-think-different.json                      per-project override
 ```
 
-The agent-level file sits in Pi's config directory (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`), so one
-file sets your usual paradigm, intensity, placement, and language everywhere; a project can still
-override any single key.
-
-Copy `config.example.jsonc` to `config.json` next to `index.ts` to get started. Comments (`//` and `/* */`) are allowed;
-a bad value is reported at session start and the rest of the file still applies.
+Copy `config.example.jsonc` to `config.json` next to `index.ts` to get started. Comments (`//`, `/* */`) are allowed; a bad value is reported at session start and the rest of the file still applies.
 
 ```jsonc
 {
-  "startup": "tot",        // paradigm id or alias, "auto", or "off"
+  "startup": "tot",        // paradigm id or alias, "auto", "random", or "off"
   "intensity": "standard", // light | standard | deep
   "placement": "thinking", // answer | thinking
-  "language": "zh"         // en | zh
+  "language": "en"         // en | zh
 }
 ```
 
-**`language`** changes only the interface: the `/think` picker, `/think list`, help, the status line,
-and notifications are rendered in that one language - never both at once. The paradigm contracts
-injected into the system prompt stay English, because they are instructions to the model, and your
-own prompts are answered in whatever language you write them.
-
-**`placement`** decides where the paradigm's fine-grained structure lives:
+`language` changes only the interface: the picker, catalogue, help, status line, and notifications render in that one language. `placement` decides where the structure lives:
 
 | value | visible answer contains |
 | --- | --- |
-| `answer` (default) | the branches, scores, criticisms, hats - the scaffolding is on display |
-| `thinking` | only the conclusion; the structure stays in the thinking block |
+| `answer` | the branches, scores, criticisms, hats |
+| `thinking` (default) | only the conclusion; the structure stays in the thinking block |
 
-`thinking` placement is enforced twice: the contract tells the model to keep the structure in its
-reasoning, and if the model puts it in the answer anyway, the harness cuts it out of the answer and
-re-attaches it as a thinking block. A structure you cannot see is a structure you cannot verify, so
-this is a deliberate trade-off, not a cleanup.
-
-### The `think` tool
-
-Structured reasoning for the current turn:
-
-```json
-{ "task": "cache-aside or write-through?", "paradigm": "tot", "mode": "scaffold" }
-```
-
-Harness-driven multi-pass reasoning:
-
-```json
-{ "task": "cache-aside or write-through?", "paradigm": "tot", "mode": "run" }
-```
-
-Run-mode output is labelled step by step. A `Harness gate` line states what was pruned and why, for
-example:
-
-```text
-Harness gate (external control): pruned Branch_B (3/10). Build only on: Branch_A (9/10).
-Do not revive a pruned candidate unless you state the evidence that changes its score.
-```
-
-Trust the gate over the model's own confidence: that pruning decision was computed, not asserted.
-
-## Behaviour worth knowing
-
-- **Escape hatch is built into every contract.** A lookup, a rename, or a one-line edit skips the
-  structure instead of dressing it up. `/think` is for substantive reasoning, not for ceremony.
-- **Markers must be visible.** The contract says to emit the structure in the answer, not only in
-  private thinking, so you can see which paradigm actually ran.
-- **Session state survives reload and resume.** The active paradigm is stored as a session entry and
-  rebuilt from the current branch, so branching, `/reload`, and resuming keep the choice consistent.
-- **`/think auto` is a keyword-and-signal heuristic**, not a model call: it scores defect, design,
-  decision, and trade-off signals in the prompt and refuses to attach a paradigm to a trivial prompt.
-- **The skill ships with the extension.** `skills/think-different/SKILL.md` is contributed through
-  `resources_discover`, so the agent knows which paradigm fits which shape without being told.
+With `thinking`, the contract asks the model to keep the structure in its reasoning, and if it writes it into the answer anyway, the harness moves those sections into the thinking block.
 
 ## Development
 
-See [ROADMAP.md](./ROADMAP.md) for the definition of "a paradigm works" and the planned work.
-
-Unit tests (no model, no network):
-
 ```bash
-node --test selftest.ts
-```
-
-62 tests covering: registry integrity and alias uniqueness, marker/contract consistency for every
-paradigm, prompt rendering and intensity layering (including the concrete-task line from
-`/think <paradigm> <task>`), placement clauses, `/think` argument parsing - explicit tokens and
-prose cue matching - config validation and layering (language spellings, comment-tolerant parsing,
-unknown keys, malformed JSON), single-language catalogue and status rendering, structure extraction
-from tagged and heading-form answers, auto-selection (including "trivial prompts get no paradigm"),
-score extraction, external pruning, and the workflow engine against a scripted fake model (step order,
-placeholder filling, prior-step threading, harness branch budgets per intensity, output caps, `only:`
-reruns, failure propagation), and the location of the bundled skill.
-
-Live end-to-end checks (real Pi runs, one model request each):
-
-```bash
-node livecheck.mjs            # every paradigm + config options + the think tool in run mode
-node livecheck.mjs tot hats   # paradigm subset only
-node livecheck.mjs options    # config startup, language, placement, and prose /think
-```
-
-A paradigm check spawns `pi --mode json --think <paradigm> -p "<prompt>"` and fails if the answer is
-missing any marker that paradigm is defined by. Option checks run Pi inside a scratch directory whose
-`.pi/pi-think-different.json` sets the option under test, and assert what the user would actually see:
-the catalogue language, whether a config `startup` pins a paradigm without any flag, and whether a
-`thinking` placement leaves the structure out of the visible answer. The agent-layer case redirects
-`PI_CODING_AGENT_DIR` to a scratch config directory (auth and model files symlinked in, the extension
-loaded with `--extension`) and puts the config at `<agentDir>/pi-think-different.json` with no project
-file at all, so a pass proves that layer is read. The prose case drives Pi in RPC
-mode - print mode does not expand slash commands - sends `/think 以六顶思考帽的方式思考俄乌战争的结果`,
-requires the command response `disposition: "handled"`, and then requires the next turn to carry the
-`six hats` markers. Verdicts stream in as each run finishes; cases run through a pool of 3 concurrent
-Pi sessions (`LIVECHECK_CONCURRENCY=1..4`), each allowed `LIVECHECK_TIMEOUT_MS` milliseconds (default
-420000) before it is retried once. Pass `tool` as an argument to run only the `think`-tool case.
-
-Every injected contract states its markers verbatim and forbids substituting a heading, bold label,
-emoji, or a single code fence for a tag. Models follow that discipline; a paradigm that degrades into
-prose fails the check instead of passing quietly.
-
-```bash
+node --test selftest.ts     # 91 unit tests: no model, no network
+node livecheck.mjs          # end-to-end against real Pi runs (18 cases)
+node livecheck.mjs tot hats  # paradigm subset only
+node livecheck.mjs options   # config startup, language, placement, prose /think
 npm test                     # unit tests
 npm run check                # unit tests + live checks
 ```
 
-## Layout
-
-```text
-pi-think-different/
-├── index.ts            # Pi wiring: command, tool, flag, prompt injection, config load, session state
-├── paradigms.ts        # paradigm registry: contracts, markers, workflow steps (pure)
-├── render.ts           # prompt section rendering + /think argument parsing (pure)
-├── nlmatch.ts          # paradigm cues in prose -> paradigm + task (pure)
-├── config.ts           # config schema, validation, layering, comment-tolerant parsing (pure)
-├── ui.ts               # every human-facing string, in one language at a time (pure)
-├── placement.ts        # structure placement: prompt clause + answer extraction (pure)
-├── autoSelect.ts       # heuristic paradigm selection (pure)
-├── workflow.ts         # multi-pass engine with external score gating (pure, injectable model)
-├── selftest.ts         # unit tests
-├── livecheck.mjs       # end-to-end checks against real Pi runs
-├── config.example.jsonc # copy to config.json to set your defaults
-├── LICENSE             # MIT
-├── ROADMAP.md          # what counts as "works", and what gets built next
-└── skills/think-different/SKILL.md
-```
+Unit tests cover the pure modules: registry and contracts, prompt rendering, argument parsing, config layering, placement, auto-selection, score extraction, and the workflow engine against a scripted fake model. A live paradigm check spawns `pi --mode json --think <paradigm> -p "<prompt>"` and fails if the answer is missing a marker that paradigm is defined by; option checks run Pi in a scratch directory whose config sets the option under test. See [AGENTS.md](./AGENTS.md) for how to work on this extension and [ROADMAP.md](./ROADMAP.md) for what counts as "a paradigm works".
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).

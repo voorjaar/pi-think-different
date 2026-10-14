@@ -35,4 +35,15 @@ for it, and a unit test asserts every cue resolves back to the paradigm that own
 shape needs a live check, first determine which Pi mode actually executes that path; headless print mode
 cannot prove command wiring.
 
-Related: [[think-options-language-and-placement]], [[pi-extension-test-split]]
+**The same vocabulary is what `/think auto` must consult too.** Auto mode scored prompts on generic
+complexity signals plus per-paradigm `keywords`, so "用辩论的方式分析一下俄乌战争的结果？" scored on
+`question +1 / CJK +1 / medium +1` and landed on `cot` - the generic signals are stronger than debate's
+keyword list, and `辩论` was only an *alias*, which auto never read. Fix in `autoSelect.ts`: run
+`matchCues(prompt, listParadigms())` first, and when exactly one paradigm is named, that paradigm wins
+outright (`confident: true`, reason `named in your wording: "辩论" → debate`). Two paradigms named is
+still not guessed: the cue override is skipped, the scoring decides, and the reasons say so.
+
+A unit test pins the invariant for the whole registry: every cue of every paradigm, embedded in a
+neutral sentence, must resolve back to the paradigm that owns it.
+
+Related: [[think-options-language-and-placement]], [[pi-extension-test-split]], [[auto-select-cjk-length-signal]]
