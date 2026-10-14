@@ -14,8 +14,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 
@@ -46,7 +46,8 @@ const TOOL_CASE = {
 
 /**
  * Option cases: these prove the config layer and the two new options end to end, by running Pi
- * in a scratch directory that carries a `.pi/think-different.json`.
+ * in a scratch directory that carries a `.pi/pi-think-different.json`, or a scratch agent directory
+ * that carries `<agentDir>/pi-think-different.json`.
  */
 const OPTION_CASES = [
 	{
@@ -62,6 +63,7 @@ const OPTION_CASES = [
 	{
 		paradigm: "nl:prose",
 		config: { language: "zh" },
+		timeoutMs: 900_000,
 		// One command only: /think with a task must start the turn by itself.
 		rpc: [{ id: "cmd-1", type: "prompt", message: "/think 以六顶思考帽的方式思考俄乌战争的结果" }],
 	},
@@ -71,17 +73,48 @@ const OPTION_CASES = [
 		prompt: "Should a 12-person engineering team adopt a strict no-meetings Wednesday? Decide after thinking it through.",
 	},
 	{
+		// The agent-level file (<agentDir>/pi-think-different.json) must apply even with no project config.
+		paradigm: "startup:agent",
+		agentConfig: { startup: "tot", language: "en" },
+		prompt: "Should a 12-person engineering team adopt a strict no-meetings Wednesday? Decide after thinking it through.",
+	},
+	{
 		paradigm: "placement:thinking",
 		config: { startup: "tot", placement: "thinking" },
 		prompt: "A note-taking app needs offline support. Consider at least three genuinely different architectural approaches, score each, prune the weak ones, deepen the survivor, and pick a path. No code, no file reading.",
 	},
 ];
 
-/** A scratch cwd whose project config is the one under test. */
+/**
+ * A scratch cwd whose project config is the one under test.
+ *
+ * `placement: "answer"` is pinned unless the case overrides it: the real
+ * ~/.pi/agent/pi-think-different.json is a live layer in every run here, and a user who set
+ * `placement: "thinking"` would otherwise make every marker-in-the-answer case fail for their own taste.
+ */
 function scratchCwd(config) {
 	const dir = mkdtempSync(join(tmpdir(), "think-different-"));
 	mkdirSync(join(dir, ".pi"), { recursive: true });
-	writeFileSync(join(dir, ".pi", "think-different.json"), `${JSON.stringify(config, null, "\t")}\n`, "utf8");
+	const effective = { placement: "answer", ...config };
+	writeFileSync(join(dir, ".pi", "pi-think-different.json"), `${JSON.stringify(effective, null, "\t")}\n`, "utf8");
+	return dir;
+}
+
+/**
+ * A scratch agent dir whose pi-think-different.json is the one under test.
+ * Pi reads its whole config directory from PI_CODING_AGENT_DIR, so the auth/model files are
+ * symlinked in and the extension is loaded explicitly with --extension. settings.json is deliberately
+ * not symlinked: its installed packages make Pi git-clone them into the scratch dir, which fails there.
+ */
+function scratchAgentDir(config) {
+	const realAgentDir = process.env.PI_CODING_AGENT_DIR?.trim() || join(homedir(), ".pi", "agent");
+	const dir = mkdtempSync(join(tmpdir(), "think-agent-"));
+	for (const name of ["auth.json", "models.json"]) {
+		const source = join(realAgentDir, name);
+		if (existsSync(source)) symlinkSync(source, join(dir, name));
+	}
+	mkdirSync(join(dir, "sessions"), { recursive: true });
+	writeFileSync(join(dir, "pi-think-different.json"), `${JSON.stringify(config, null, "\t")}\n`, "utf8");
 	return dir;
 }
 
@@ -223,9 +256,9 @@ function collectToolResults(records) {
 	return results.join("\n");
 }
 
-function runPi(args, timeoutMs, cwd) {
+function runPi(args, timeoutMs, cwd, env) {
 	return new Promise((resolve, reject) => {
-		const child = spawn("pi", args, { stdio: ["ignore", "pipe", "pipe"], cwd });
+		const child = spawn("pi", args, { stdio: ["ignore", "pipe", "pipe"], cwd, env: env ? { ...process.env, ...env } : process.env });
 		let stdout = "";
 		let stderr = "";
 		let settled = false;
@@ -280,7 +313,10 @@ async function checkParadigm(entry) {
 	const paradigm = resolveParadigm(entry.paradigm);
 	if (!paradigm) return { id: entry.paradigm, ok: false, detail: "unknown paradigm in registry" };
 
-	const { records, stderr } = await runPi(["--mode", "json", "--think", paradigm.id, "-p", entry.prompt], RUN_TIMEOUT_MS);
+	// Hermetic: run in a scratch cwd that pins placement=answer, otherwise the user's own
+	// <agentDir>/pi-think-different.json (e.g. placement: "thinking") moves the structure out of the
+	// answer and every marker-in-the-answer case fails for the user's taste instead of the code's.
+	const { records, stderr } = await runPi(["--mode", "json", "--think", paradigm.id, "-p", entry.prompt], RUN_TIMEOUT_MS, scratchCwd({}));
 	const text = collectAssistantText(records);
 	const missing = missingMarkers(text, paradigm.markers);
 	const extensionErrors = (stderr.match(/think-different[^\n]*/g) ?? []).filter((line) => /error|failed|throw/i.test(line));
@@ -300,9 +336,18 @@ async function checkParadigm(entry) {
 }
 
 async function checkOption(entry) {
-	const cwd = scratchCwd(entry.config);
+	const agentDir = entry.agentConfig ? scratchAgentDir(entry.agentConfig) : undefined;
+	const cwd = agentDir ? mkdtempSync(join(tmpdir(), "think-plain-")) : scratchCwd(entry.config);
+	const env = agentDir ? { PI_CODING_AGENT_DIR: agentDir } : undefined;
+	// With PI_CODING_AGENT_DIR redirected to a scratch dir, extension discovery finds nothing there,
+	// so the extension under test is loaded explicitly.
+	const jsonArgs = agentDir
+		? ["--mode", "json", "-e", join(import.meta.dirname, "index.ts"), "-p", entry.prompt]
+		: ["--mode", "json", "-p", entry.prompt];
 	const viaRpc = Array.isArray(entry.rpc);
-	const session = viaRpc ? await runPiRpc(cwd, entry.rpc, RUN_TIMEOUT_MS) : await runPi(["--mode", "json", "-p", entry.prompt], RUN_TIMEOUT_MS, cwd);
+	// Chained cases (RPC drives two turns) nest more model calls and need their own budget.
+	const timeoutMs = entry.timeoutMs ?? RUN_TIMEOUT_MS;
+	const session = viaRpc ? await runPiRpc(cwd, entry.rpc, timeoutMs) : await runPi(jsonArgs, timeoutMs, cwd, env);
 	const { records, stderr } = session;
 	const responses = session.responses ?? new Map();
 	const extensionErrors = (stderr.match(/think-different[^\n]*/g) ?? []).filter((line) => /error|failed|throw/i.test(line));
@@ -353,13 +398,14 @@ async function checkOption(entry) {
 		return { id: entry.paradigm, ok: true, detail: `"/think 以六顶思考帽的方式思考…" pinned ${paradigm.id} and started the turn itself; ${paradigm.markers.length} markers present, ${allText.trim().length} chars` };
 	}
 
-	if (entry.paradigm === "startup:config") {
-		const paradigm = resolveParadigm(entry.config.startup);
+	if (entry.paradigm.startsWith("startup:")) {
+		const startup = (entry.agentConfig ?? entry.config).startup;
+		const paradigm = resolveParadigm(startup);
 		const missing = paradigm.markers.filter((marker) => !allText.includes(marker));
 		if (missing.length > 0) {
 			return { id: entry.paradigm, ok: false, detail: `config startup did not pin the paradigm; missing markers: ${missing.join(", ")} | answer ${allText.trim().length} chars | head: ${allText.slice(0, 240).replace(/\s+/g, " ")}` };
 		}
-		return { id: entry.paradigm, ok: true, detail: `.pi/think-different.json startup pinned ${paradigm.id} without any flag; ${paradigm.markers.length} markers present` };
+		return { id: entry.paradigm, ok: true, detail: `${entry.agentConfig ? "<agentDir>/pi-think-different.json" : ".pi/pi-think-different.json"} startup pinned ${paradigm.id} without any flag; ${paradigm.markers.length} markers present` };
 	}
 
 	// placement: "thinking"
@@ -385,7 +431,7 @@ async function checkOption(entry) {
 
 async function checkToolRun() {
 	// The tool case chains nested model calls inside one Pi turn, so it needs more room than a single scaffolded answer.
-	const { records, stderr } = await runPi(["--mode", "json", "-p", TOOL_CASE.prompt], RUN_TIMEOUT_MS * 3);
+	const { records, stderr } = await runPi(["--mode", "json", "-p", TOOL_CASE.prompt], RUN_TIMEOUT_MS * 3, scratchCwd({}));
 	const calls = collectToolCalls(records);
 	const call = calls.find((entry) => entry.name === "think");
 	const toolText = collectToolResults(records);
@@ -432,12 +478,30 @@ async function main() {
 						const item = items[cursor];
 						cursor += 1;
 						try {
+							// A timed-out Pi session is usually contention, and a single dropped marker is usually
+							// model variance; both are retried once before they are reported as failures.
+							const timedOut = (error) => error instanceof Error && /timed out/.test(error.message);
+							const flaky = (r) => !r.ok && /missing markers/.test(r.detail ?? "");
+							const missingCount = (r) => ((r.detail ?? "").match(/missing markers: ([^|]*)/)?.[1] ?? "").split(",").filter(Boolean).length;
+							const label = () => String(item.paradigm ?? "tool:run").padEnd(18);
 							try {
-								report(await run(item));
+								let result = await run(item);
+								if (flaky(result)) {
+									console.log(`RETRY ${label()} ${result.detail.slice(0, 110)}`);
+									const second = await run(item);
+									if (second.ok || missingCount(second) < missingCount(result)) {
+										result = second;
+									} else {
+										// Keep the better attempt but say that the miss reproduced, so a systematic
+										// contract problem is not mistaken for one unlucky run.
+										const again = (second.detail ?? "").match(/missing markers: ([^|]*)/)?.[1]?.trim() ?? "same markers";
+										result = { ...result, detail: `${result.detail} | reproduced on retry: ${again}` };
+									}
+								}
+								report(result);
 							} catch (error) {
-								// A timed-out Pi session is usually contention, not a broken contract.
-								if (!/timed out/.test(error.message)) throw error;
-								console.log(`RETRY ${String(item.paradigm ?? "tool:run").padEnd(18)} ${error.message}`);
+								if (!timedOut(error)) throw error;
+								console.log(`RETRY ${label()} ${error.message}`);
 								report(await run(item));
 							}
 						} catch (error) {

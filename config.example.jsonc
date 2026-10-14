@@ -1,6 +1,7 @@
 {
 	// Copy this file to config.json in the same folder to set your defaults.
-	// Project override: <repo>/.pi/think-different.json wins over config.json.
+	// Precedence (later wins): config.json < ~/.pi/agent/pi-think-different.json
+	// < <repo>/.pi/pi-think-different.json < --think < /think in the session.
 
 	// What a session starts with: a paradigm id or alias, "auto", or "off".
 	// Examples: "tot", "六顶思考帽", "first-principles", "auto", "off".

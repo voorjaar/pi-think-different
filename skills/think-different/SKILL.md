@@ -76,6 +76,8 @@ Rules that keep this useful:
   whether the paradigm's structure appears in the visible answer or stays in the thinking block. With
   `thinking` placement, keep branches, scores, and critiques out of the answer text and let the answer
   carry the conclusion only.
-- Defaults live in `~/.pi/agent/extensions/pi-think-different/config.json` and `<repo>/.pi/think-different.json`
-  (`startup`, `intensity`, `placement`, `language`). `/think config` shows what is in play. Do not edit
+- Defaults live in `~/.pi/agent/extensions/pi-think-different/config.json` (extension),
+  `~/.pi/agent/pi-think-different.json` (your defaults for every project), and
+  `<repo>/.pi/pi-think-different.json` (per-project), in that precedence order; each holds `startup`,
+  `intensity`, `placement`, `language`. `/think config` shows what is in play. Do not edit
   those files unless the user asks you to.

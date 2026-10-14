@@ -43,4 +43,25 @@ the `think(mode:"run")` case nests three model calls inside one Pi turn and need
 Give chained cases their own multiplier instead of raising the global timeout, otherwise a slow chained
 case masks fast single-pass failures.
 
-Related: [[thinking-paradigm-two-mechanisms]]
+**Budget the multi-call case separately.** A single scaffolded answer finishes in well under 420 s, but
+the `think(mode:"run")` case nests three model calls inside one Pi turn and needs roughly 3x that.
+Give chained cases their own multiplier instead of raising the global timeout, otherwise a slow chained
+case masks fast single-pass failures.
+
+**Live checks inherit the user's real config layers, so pin the ones under test.** Adding
+`~/.pi/agent/pi-think-different.json` as a global layer made three previously green option cases fail
+at once: that file set `placement: "thinking"`, so the hat markers left the visible answer and every
+marker-in-the-answer assertion broke - the suite was measuring the user's taste, not the code. Scratch
+cwd configs now write `{ placement: "answer", ...caseConfig }` so a case states what it depends on
+instead of inheriting it. The paradigm and `think`-tool cases need the same treatment: they used to
+inherit the harness's own cwd, and the same global layer broke nine of them in a full run. Every case
+now runs in a scratch cwd.
+
+**A scratch `PI_CODING_AGENT_DIR` must not symlink `settings.json`.** Testing the agent-level config
+means pointing Pi's whole config directory at a temp dir. Symlinking `auth.json` and `models.json` is
+enough to authenticate; symlinking `settings.json` drags in the installed extension packages, and Pi
+then tries to git-clone each one *into the scratch dir* - `git ... failed with code 128` and Pi exits 1
+before the extension ever loads. Load the extension under test explicitly with `--extension <path>`
+instead of relying on discovery inside the scratch dir.
+
+Related: [[thinking-paradigm-two-mechanisms]], [[think-options-language-and-placement]]

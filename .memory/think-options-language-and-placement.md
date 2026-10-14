@@ -5,9 +5,11 @@ type: decision
 ---
 
 Two session options were added on top of the paradigm switch: `language` (en | zh) and `placement`
-(answer | thinking). Both are configured in layers - built-in defaults < `config.json` in the extension
-folder < `<cwd>/.pi/think-different.json` < CLI flag < `/think` during the session - and the layering
-lives in `config.ts` as pure functions so it is testable without Pi.
+(answer | thinking). Both are configured in layers - built-in defaults < `<extension>/config.json` <
+`<agentDir>/pi-think-different.json` < `<cwd>/.pi/pi-think-different.json` < CLI flag < `/think`
+during the session, where `agentDir` is `$PI_CODING_AGENT_DIR` else `~/.pi/agent` - and the layering
+lives in `config.ts` as pure functions (`extensionConfigPath`, `agentConfigPath`, `projectConfigPath`,
+`resolveAgentDir`, `configLayerPaths`) so it is testable without Pi.
 
 **Language: one module, one language.** Every human-facing string (picker options, `/think list`,
 help, status line, notifications, error text) is produced by `ui.ts`, which takes a `Language`
@@ -42,8 +44,14 @@ in the thinking block rather than deleting it.
 
 **How to apply.** When adding another user-visible option: put its strings in `ui.ts`, its validation in
 `config.ts`, and give `livecheck.mjs` an option case that runs Pi in a scratch cwd whose
-`.pi/think-different.json` sets the option and asserts what the user would see (catalogue language,
+`.pi/pi-think-different.json` sets the option and asserts what the user would see (catalogue language,
 whether `startup` pins a paradigm with no CLI flag, whether the structure left the answer). Unit tests
 prove the pure halves; only a real Pi run proves the wiring.
+
+**A layer outside the project needs PI_CODING_AGENT_DIR to be testable live.** Redirecting the agent
+dir moves *everything* Pi reads from it - extensions, auth, models - so the scratch agent dir symlinks
+`auth.json`, `models.json`, `settings.json`, creates `sessions/`, and loads the extension explicitly
+with `--extension <ext>/index.ts`. Without the symlinks the run cannot authenticate and looks like a
+paradigm failure rather than a config failure.
 
 Related: [[thinking-paradigm-two-mechanisms]], [[scaffold-markers-need-tag-discipline]], [[pi-extension-test-split]]

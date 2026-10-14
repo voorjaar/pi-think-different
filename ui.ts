@@ -137,11 +137,18 @@ export function autoSelectionMessage(lang: Language, paradigm: Paradigm, reasons
 	return t(lang, `auto thinking paradigm → ${paradigm.id}`, `自动选择思考范式 → ${paradigm.id}`) + (reasons.length > 0 ? ` (${reasons.slice(0, 3).join("; ")})` : "");
 }
 
-export function configPathsMessage(lang: Language, userPath: string, projectPath: string): string {
+const CONFIG_LAYER_LABEL: Record<"extension" | "agent" | "project", [string, string]> = {
+	extension: ["extension", "扩展级"],
+	agent: ["agent (all projects)", "全局（所有项目）"],
+	project: ["project", "项目级"],
+};
+
+export function configPathsMessage(lang: Language, layers: { kind: "extension" | "agent" | "project"; path: string }[]): string {
+	const localizedSlot = lang === "zh" ? 1 : 0;
 	return [
 		t(lang, "config files (later wins):", "配置文件（后者覆盖前者）："),
-		`  ${t(lang, "user", "用户级")}    ${userPath}`,
-		`  ${t(lang, "project", "项目级")}  ${projectPath}`,
+		...layers.map((layer) => `  ${CONFIG_LAYER_LABEL[layer.kind][localizedSlot].padEnd(22)} ${layer.path}`),
+		`  ${t(lang, "then --think, then /think in this session", "再是 --think，再是会话里的 /think")}`,
 	].join("\n");
 }
 

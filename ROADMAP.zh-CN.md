@@ -21,7 +21,7 @@
 `[任务]`；自然语言参数（`/think 以六顶思考帽的方式思考俄乌战争的结果` 能从措辞里认出范式，剩下的当任务，
 同时命中两个范式时不猜、反问）；`--think <范式>` 启动参数；`light | standard | deep` 三档强度；
 `lang en|zh` 界面语言；`placement answer|thinking` 结构位置；`config` 展示当前生效的分层配置
-（`config.json` < `.pi/think-different.json` < flag < `/think`）；状态栏指示；跨重启与会话
+（`config.json` < `<agentDir>/pi-think-different.json` < `.pi/pi-think-different.json` < flag < `/think`）；状态栏指示；跨重启与会话
 分支的状态持久化；随扩展分发的 skill。
 
 实跑检查覆盖用户能走到的三条接线：`--think`（print 模式）、`think` 工具、以及 `/think` 命令——最后一条

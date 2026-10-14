@@ -22,7 +22,8 @@ Controls shipped: `/think` (status/picker), `list`, `off`, `auto`, `once`, `<par
 paradigm from its cue and keeps the rest as the task, and refuses to guess when two paradigms match);
 `--think <paradigm>` CLI flag; `light | standard | deep` intensities; `lang en|zh` for the interface
 language; `placement answer|thinking` for where the structure lives; `config` to show the layered
-config in play (`config.json` < `.pi/think-different.json` < flag < `/think`); status-line indicator;
+config in play (`config.json` < `<agentDir>/pi-think-different.json` < `.pi/pi-think-different.json`
+< flag < `/think`); status-line indicator;
 session persistence across restarts and session trees; contributed skill.
 
 Live checks cover all three wiring paths a user can reach: `--think` (print mode), the `think` tool,

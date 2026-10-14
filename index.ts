@@ -31,6 +31,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,7 +40,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Extension
 import { Type } from "typebox";
 
 import { selectParadigm } from "./autoSelect.ts";
-import { DEFAULT_CONFIG, mergeConfigs, parseConfigText, type Language, type Placement, type ThinkConfig } from "./config.ts";
+import { DEFAULT_CONFIG, configLayerPaths, mergeConfigs, parseConfigText, resolveAgentDir, type Language, type Placement, type ThinkConfig } from "./config.ts";
 import { extractStructure } from "./placement.ts";
 import { listParadigms, resolveParadigm, type Intensity, type Paradigm, type ParadigmStep } from "./paradigms.ts";
 import { intensityFor, parseThinkArgs, renderSection, renderScaffoldForTask, SECTION_TAG } from "./render.ts";
@@ -55,11 +56,10 @@ const EXT_DIR = dirname(fileURLToPath(import.meta.url));
  * Anchor extension-owned assets to this file's own directory instead.
  */
 const SKILL_PATH = join(EXT_DIR, "skills", "think-different", "SKILL.md");
-const USER_CONFIG_PATH = join(EXT_DIR, "config.json");
 
-/** Project-level config, layered on top of the user config. */
-function projectConfigPath(cwd: string): string {
-	return join(cwd, ".pi", "think-different.json");
+/** config.json (extension) < <agentDir>/pi-think-different.json < <cwd>/.pi/pi-think-different.json. */
+function configLayers(cwd: string): { kind: "extension" | "agent" | "project"; path: string }[] {
+	return configLayerPaths(EXT_DIR, resolveAgentDir(process.env, homedir()), cwd);
 }
 
 type ThinkMode = "off" | "sticky" | "once" | "auto";
@@ -159,18 +159,16 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 	/** Read the user config and the project config, and report what is wrong with them. */
 	function loadConfigLayers(cwd: string): ThinkConfig {
 		configProblems = [];
-		const userPath = USER_CONFIG_PATH;
-		const projectPath = projectConfigPath(cwd);
 		const layers: Partial<ThinkConfig>[] = [];
 
-		for (const file of [userPath, projectPath]) {
-			if (!existsSync(file)) continue;
+		for (const file of configLayers(cwd)) {
+			if (!existsSync(file.path)) continue;
 			try {
-				const report = parseConfigText(readFileSync(file, "utf8"));
+				const report = parseConfigText(readFileSync(file.path, "utf8"));
 				layers.push(report.config);
-				for (const problem of report.problems) configProblems.push({ file, problem });
+				for (const problem of report.problems) configProblems.push({ file: file.path, problem });
 			} catch (error) {
-				configProblems.push({ file, problem: error instanceof Error ? error.message : String(error) });
+				configProblems.push({ file: file.path, problem: error instanceof Error ? error.message : String(error) });
 			}
 		}
 
@@ -353,7 +351,7 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 					ctx.ui.notify(renderList(state.language), "info");
 					return;
 				case "config":
-					ctx.ui.notify(configPathsMessage(state.language, USER_CONFIG_PATH, projectConfigPath(process.cwd())), "info");
+					ctx.ui.notify(configPathsMessage(state.language, configLayers(process.cwd())), "info");
 					ctx.ui.notify(describe(), "info");
 					if (configProblems.length > 0) {
 						for (const problem of configProblems) ctx.ui.notify(configProblemMessage(state.language, problem.file, problem.problem), "warning");
@@ -421,7 +419,7 @@ export default function thinkDifferentExtension(pi: ExtensionAPI): void {
 		const lang = state.language;
 		if (ctx.hasUI && ctx.mode === "tui") {
 			const options = [
-				...listParadigms().map((p) => `${p.emoji} ${p.id} · ${lang === "zh" ? p.titleZh : p.title}`),
+				...listParadigms().map((p) => `${p.emoji} ${p.id} · ${paradigmName(p, lang)}`),
 				t(lang, "🎯 auto (pick per prompt)", "🎯 auto（每个提示词自动选）"),
 				t(lang, "⏹ off", "⏹ 关闭"),
 			];

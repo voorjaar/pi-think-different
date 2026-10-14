@@ -80,12 +80,15 @@ pi --mode json --think tot -p "Design offline support for a note app"
 
 ## 配置
 
-默认值来自两个可选的 JSON 文件（后者覆盖前者），而会话里的 `/think` 又覆盖两者：
+默认值来自三个可选的 JSON 文件（后者覆盖前者），而会话里的 `/think` 又覆盖全部三者：
 
 ```text
-~/.pi/agent/extensions/pi-think-different/config.json   个人默认
-<repo>/.pi/think-different.json                        项目覆盖
+~/.pi/agent/extensions/pi-think-different/config.json   扩展自带默认
+~/.pi/agent/pi-think-different.json                    你的全局默认（所有项目）
+<repo>/.pi/pi-think-different.json                     项目覆盖
 ```
+
+全局那一层放在 Pi 的配置目录里（`$PI_CODING_AGENT_DIR`，未设置时是 `~/.pi/agent`）：一个文件就能定下你惯用的范式、强度、放置与语言，而单个项目仍可只覆盖其中任意一项。
 
 把 `config.example.jsonc` 复制成同目录下的 `config.json` 即可开始。支持注释（`//` 与 `/* */`）；某个取值不合法时会在会话启动时提示，文件其余部分照常生效。
 
@@ -160,7 +163,7 @@ node livecheck.mjs tot hats   # 只跑范式子集
 node livecheck.mjs options    # 配置启动、语言、结构位置、自然语言 /think
 ```
 
-范式检查会启动 `pi --mode json --think <范式> -p "<提示词>"`，如果回答里缺少该范式定义所依赖的任一标记就判定失败。选项检查在一个临时目录里跑 Pi，该目录的 `.pi/think-different.json` 设定待验选项，然后断言用户真正会看到的东西：清单用哪种语言、配置的 `startup` 能否不用任何 flag 就固定范式、`thinking` 位置是否把结构留在可见回答之外。自然语言用例走 RPC 模式（print 模式不展开斜杠命令），发出 `/think 以六顶思考帽的方式思考俄乌战争的结果`，要求命令响应的 `disposition` 为 `"handled"`，然后要求下一回合带着六顶帽子的标记。每条判定在对应实跑结束后立刻输出；用例通过 3 个并发 Pi 会话的线程池执行（`LIVECHECK_CONCURRENCY=1..4`），单次实跑超时由 `LIVECHECK_TIMEOUT_MS` 控制（默认 420000 毫秒），超时后重试一次。传入 `tool` 参数则只跑 `think` 工具的用例。
+范式检查会启动 `pi --mode json --think <范式> -p "<提示词>"`，如果回答里缺少该范式定义所依赖的任一标记就判定失败。范式检查会启动 `pi --mode json --think <范式> -p "<提示词>"`，如果回答里缺少该范式定义所依赖的任一标记就判定失败。选项检查在一个临时目录里跑 Pi，该目录的 `.pi/pi-think-different.json` 设定待验选项，然后断言用户真正会看到的东西：清单用哪种语言、配置的 `startup` 能否不用任何 flag 就固定范式、`thinking` 位置是否把结构留在可见回答之外。全局层那个用例会把 `PI_CODING_AGENT_DIR` 指向一个临时配置目录（auth 与模型文件软链接过去，扩展用 `--extension` 显式加载），并把配置写到 `<agentDir>/pi-think-different.json`，同时不建任何项目配置——通过就证明这一层确实被读到。自然语言用例走 RPC 模式（print 模式不展开斜杠命令），发出 `/think 以六顶思考帽的方式思考俄乌战争的结果`，要求命令响应的 `disposition` 为 `"handled"`，然后要求下一回合带着六顶帽子的标记。每条判定在对应实跑结束后立刻输出；用例通过 3 个并发 Pi 会话的线程池执行（`LIVECHECK_CONCURRENCY=1..4`），单次实跑超时由 `LIVECHECK_TIMEOUT_MS` 控制（默认 420000 毫秒），超时后重试一次。传入 `tool` 参数则只跑 `think` 工具的用例。
 
 每个注入的契约都会逐字列出它要求的标记，并明确禁止用标题、加粗、emoji 或一整段代码围栏替代标签。模型遵守这一纪律；退化成普通散文的范式会直接报错，而不是蒙混过关。
 
@@ -185,10 +188,11 @@ pi-think-different/
 ├── selftest.ts         # 单元测试
 ├── livecheck.mjs       # 针对真实 Pi 会话的端到端检查
 ├── config.example.jsonc # 复制成 config.json 即可设定默认值
+├── LICENSE             # MIT
 ├── ROADMAP.zh-CN.md    # 「正常工作」的判定标准，以及下一步计划
 └── skills/think-different/SKILL.md
 ```
 
 ## 许可证
 
-MIT
+MIT — 见 [LICENSE](LICENSE)。

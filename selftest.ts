@@ -18,7 +18,7 @@ import { selectParadigm } from "./autoSelect.ts";
 import { listParadigms, PARADIGMS, resolveParadigm } from "./paradigms.ts";
 import { intensityFor, parseThinkArgs, renderBody, renderSection, SECTION_TAG } from "./render.ts";
 import { cueVocabulary, matchCues, taskAfterCue } from "./nlmatch.ts";
-import { DEFAULT_CONFIG, mergeConfigs, parseConfig, parseConfigText, stripJsonComments } from "./config.ts";
+import { DEFAULT_CONFIG, agentConfigPath, configLayerPaths, extensionConfigPath, mergeConfigs, parseConfig, parseConfigText, projectConfigPath, resolveAgentDir, stripJsonComments } from "./config.ts";
 import { extractStructure, placementClause } from "./placement.ts";
 import { describeState, helpLines, renderList } from "./ui.ts";
 import { branchBudget, extractScores, gateScores, renderWorkflowResult, runWorkflow, stepCharBudget, type ModelCallResult } from "./workflow.ts";
@@ -578,6 +578,38 @@ test("config: merge precedence is later layer over earlier layer", () => {
 	assert.equal(merged.language, "zh");
 	assert.equal(merged.intensity, "deep");
 	assert.equal(merged.placement, "thinking");
+});
+
+test("config: three files, in precedence order, named pi-think-different.json", () => {
+	const layers = configLayerPaths("/ext", "/agent", "/work/shop");
+	assert.deepEqual(
+		layers.map((layer) => layer.kind),
+		["extension", "agent", "project"],
+	);
+	assert.deepEqual(
+		layers.map((layer) => layer.path),
+		[extensionConfigPath("/ext"), agentConfigPath("/agent"), projectConfigPath("/work/shop")],
+	);
+	assert.equal(layers[0].path, "/ext/config.json");
+	assert.equal(layers[1].path, "/agent/pi-think-different.json");
+	assert.equal(layers[2].path, "/work/shop/.pi/pi-think-different.json");
+});
+
+test("config: agent dir honours PI_CODING_AGENT_DIR", () => {
+	assert.equal(resolveAgentDir({}, "/home/u"), "/home/u/.pi/agent");
+	assert.equal(resolveAgentDir({ PI_CODING_AGENT_DIR: "/custom/agent" }, "/home/u"), "/custom/agent");
+	assert.equal(resolveAgentDir({ PI_CODING_AGENT_DIR: "   " }, "/home/u"), "/home/u/.pi/agent");
+});
+
+test("config: agent layer beats the extension layer and loses to the project layer", () => {
+	const merged = mergeConfigs([
+		{ startup: "cot", language: "en" },
+		{ startup: "tot", placement: "thinking" },
+		{ startup: "hats" },
+	]);
+	assert.equal(merged.startup, "hats");
+	assert.equal(merged.placement, "thinking");
+	assert.equal(merged.language, "en");
 });
 
 // ---------------------------------------------------------------- placement

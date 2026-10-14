@@ -93,12 +93,17 @@ pi --mode json --think tot -p "Design offline support for a note app"
 
 ## Configuration
 
-Defaults come from two optional JSON files (later wins), and `/think` in the session wins over both:
+Defaults come from three optional JSON files (later wins), and `/think` in the session wins over all of them:
 
 ```text
-~/.pi/agent/extensions/pi-think-different/config.json   your defaults
-<repo>/.pi/think-different.json                        per-project override
+~/.pi/agent/extensions/pi-think-different/config.json   the extension author's defaults
+~/.pi/agent/pi-think-different.json                    your defaults for every project
+<repo>/.pi/pi-think-different.json                     per-project override
 ```
+
+The agent-level file sits in Pi's config directory (`$PI_CODING_AGENT_DIR`, else `~/.pi/agent`), so one
+file sets your usual paradigm, intensity, placement, and language everywhere; a project can still
+override any single key.
 
 Copy `config.example.jsonc` to `config.json` next to `index.ts` to get started. Comments (`//` and `/* */`) are allowed;
 a bad value is reported at session start and the rest of the file still applies.
@@ -196,9 +201,12 @@ node livecheck.mjs options    # config startup, language, placement, and prose /
 
 A paradigm check spawns `pi --mode json --think <paradigm> -p "<prompt>"` and fails if the answer is
 missing any marker that paradigm is defined by. Option checks run Pi inside a scratch directory whose
-`.pi/think-different.json` sets the option under test, and assert what the user would actually see:
+`.pi/pi-think-different.json` sets the option under test, and assert what the user would actually see:
 the catalogue language, whether a config `startup` pins a paradigm without any flag, and whether a
-`thinking` placement leaves the structure out of the visible answer. The prose case drives Pi in RPC
+`thinking` placement leaves the structure out of the visible answer. The agent-layer case redirects
+`PI_CODING_AGENT_DIR` to a scratch config directory (auth and model files symlinked in, the extension
+loaded with `--extension`) and puts the config at `<agentDir>/pi-think-different.json` with no project
+file at all, so a pass proves that layer is read. The prose case drives Pi in RPC
 mode - print mode does not expand slash commands - sends `/think 以六顶思考帽的方式思考俄乌战争的结果`,
 requires the command response `disposition: "handled"`, and then requires the next turn to carry the
 `six hats` markers. Verdicts stream in as each run finishes; cases run through a pool of 3 concurrent
@@ -230,10 +238,11 @@ pi-think-different/
 ├── selftest.ts         # unit tests
 ├── livecheck.mjs       # end-to-end checks against real Pi runs
 ├── config.example.jsonc # copy to config.json to set your defaults
+├── LICENSE             # MIT
 ├── ROADMAP.md          # what counts as "works", and what gets built next
 └── skills/think-different/SKILL.md
 ```
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

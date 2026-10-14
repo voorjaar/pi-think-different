@@ -2,14 +2,20 @@
  * Configuration for pi-think-different.
  *
  * Pure functions: no Pi imports, no fs, so it is unit-testable and the extension
- * only has to read two files and hand their contents here.
+ * only has to read the config files and hand their contents here.
  *
  * Layering (later wins):
- *   built-in defaults  <  user config  <  project config  <  CLI flag  <  /think during the session
+ *   built-in defaults
+ *     <  <extension>/config.json                the extension author's defaults
+ *     <  <agentDir>/pi-think-different.json     your defaults for every project
+ *     <  <cwd>/.pi/pi-think-different.json      per-project override
+ *     <  --think flag
+ *     <  /think during the session
  *
- * User config:    ~/.pi/agent/extensions/pi-think-different/config.json
- * Project config: <cwd>/.pi/think-different.json
+ * `agentDir` is Pi's config directory: $PI_CODING_AGENT_DIR, else ~/.pi/agent.
  */
+
+import { join } from "node:path";
 
 import { isIntensity, type Intensity } from "./paradigms.ts";
 
@@ -188,6 +194,36 @@ export function stripJsonComments(text: string): string {
 	}
 
 	return out;
+}
+
+/** Where the extension's own defaults live. */
+export function extensionConfigPath(extensionDir: string): string {
+	return join(extensionDir, "config.json");
+}
+
+/** Where the user's cross-project defaults live: <agentDir>/pi-think-different.json. */
+export function agentConfigPath(agentDir: string): string {
+	return join(agentDir, "pi-think-different.json");
+}
+
+/** Where a project overrides both: <cwd>/.pi/pi-think-different.json. */
+export function projectConfigPath(cwd: string): string {
+	return join(cwd, ".pi", "pi-think-different.json");
+}
+
+/** Pi's config directory, honouring PI_CODING_AGENT_DIR. */
+export function resolveAgentDir(env: Record<string, string | undefined>, homeDir: string): string {
+	const override = env.PI_CODING_AGENT_DIR?.trim();
+	return override && override.length > 0 ? override : join(homeDir, ".pi", "agent");
+}
+
+/** All three files in increasing precedence order. */
+export function configLayerPaths(extensionDir: string, agentDir: string, cwd: string): { kind: "extension" | "agent" | "project"; path: string }[] {
+	return [
+		{ kind: "extension", path: extensionConfigPath(extensionDir) },
+		{ kind: "agent", path: agentConfigPath(agentDir) },
+		{ kind: "project", path: projectConfigPath(cwd) },
+	];
 }
 
 /** The example config written for a user who has none yet. */
