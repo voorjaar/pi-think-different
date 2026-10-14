@@ -76,7 +76,7 @@ That gate is computed by the harness from the reported scores, not asserted by t
 ### Notes
 
 - While a paradigm is active, every reply uses it - including a lookup, a rename, or a one-line edit. Triviality shortens the structure, it never removes it.
-- The model writes structural markers (`<thought_tree>`, `<draft>`, the six hat emoji) so a paradigm that degrades into prose is detectable; the harness renders them as bold labels in the session language (`**Adversary angle**`, or its Chinese equivalent) and never shows a marker token. `hats` is shown exactly as the model wrote it.
+- The model writes structural markers (`<thought_tree>`, `<draft>`, the six hat emoji) so a paradigm that degrades into prose is detectable; the harness renders them as bold labels in the session language (`**Adversary angle**`, or its Chinese equivalent) and never shows a marker token. `hats` is shown exactly as the model wrote it, with its six emoji pinned by codepoint (`⚫ U+26AB` and friends) because a model will otherwise write a look-alike - 🫥, 🌑, ● - where the black hat belongs.
 
 ## Paradigms
 
@@ -125,7 +125,7 @@ With `thinking`, the model writes the structure with its markers in the text it 
 ## Development
 
 ```bash
-node --test tests/selftest.ts    # 97 unit tests: no model, no network
+node --test tests/selftest.ts    # 98 unit tests: no model, no network
 node tests/livecheck.mjs         # end-to-end against real Pi runs (18 cases)
 node tests/livecheck.mjs tot hats  # paradigm subset only
 node tests/livecheck.mjs options   # config startup, language, placement, prose /think
@@ -134,7 +134,7 @@ npm test                         # unit tests
 npm run check                    # unit tests + live checks
 ```
 
-Unit tests cover the pure modules: registry and contracts, prompt rendering, argument parsing, config layering, placement, auto-selection, score extraction, and the workflow engine against a scripted fake model. A live paradigm check spawns `pi --mode json --think <paradigm> -p "<prompt>"` and fails if the answer is missing a marker that paradigm is defined by; option checks run Pi in a scratch directory whose config sets the option under test. See [AGENTS.md](./AGENTS.md) for how to work on this extension and [ROADMAP.md](./ROADMAP.md) for what counts as "a paradigm works".
+Unit tests cover the pure modules: registry and contracts, prompt rendering, argument parsing, config layering, placement, auto-selection, score extraction, and the workflow engine against a scripted fake model. A live paradigm check spawns `pi --mode json --think <paradigm> -p "<prompt>"` and fails if the answer is missing a marker that paradigm is defined by; option checks run Pi in a scratch directory whose config sets the option under test. The slow cases (`critique`, `startup:config`, and the `think` tool case) carry 900 s / 1500 s budgets of their own, so a full run needs a 60-minute wall clock; verdicts print as they land, and whatever is left can be finished by name. See [AGENTS.md](./AGENTS.md) for how to work on this extension and [ROADMAP.md](./ROADMAP.md) for what counts as "a paradigm works".
 
 ## License
 

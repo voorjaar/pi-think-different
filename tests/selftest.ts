@@ -171,6 +171,25 @@ test("render: private reasoning alone does not count as running the paradigm", (
 	assert.ok(renderTurnReminder(resolveParadigm("hats")!, "thinking").includes("spelled out in the text you produce"));
 });
 
+test("render: hat emoji are pinned by codepoint and look-alikes are named as failures", () => {
+	const hats = resolveParadigm("hats")!;
+	const codes = ["U+26AA", "U+1F534", "U+26AB", "U+1F7E1", "U+1F7E2", "U+1F535"];
+	for (const intensity of ["light", "standard", "deep"] as const) {
+		const section = renderSection(hats, intensity, "answer", "session");
+		for (const code of codes) {
+			assert.ok(section.includes(code), `${intensity} contract omits ${code}`);
+		}
+	}
+	// Observed model variance: a face or a moon substituted for the black hat circle. The contract has to
+	// name that shape as a failure, not just say "the exact emoji".
+	const body = hats.body;
+	assert.ok(body.includes("look-alike"), body.slice(0, 400));
+	assert.ok(body.includes("🫥") && body.includes("🌑") && body.includes("●"), "look-alike glyphs not named");
+	assert.ok(body.includes("counts as that hat not having run"), "wrong glyph has no consequence");
+	assert.ok(hats.compact.includes("U+26AB"), "compact contract omits the black hat codepoint");
+	assert.deepEqual(hats.markers, ["⚪", "🔴", "⚫", "🟡", "🟢", "🔵", "<answer>"], "markers must stay the plain emoji");
+});
+
 test("render: a concrete task from /think is injected for the turn", () => {
 	const paradigm = resolveParadigm("tot")!;
 	const withTask = renderSection(paradigm, "standard", "answer", "session", "design a cache layer");

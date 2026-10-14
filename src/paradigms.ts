@@ -480,14 +480,14 @@ The surviving cause, the confidence level, and the single cheapest next check th
 		skipKeywords: COMMON_SKIP,
 		body: `Evaluate the matter through all six thinking hats, one hat at a time. Stay inside one hat per section; do not blend lenses.
 
-The section marker is the emoji on the left. This mapping is fixed - ⚪ is the white hat, ⚫ is the black hat, 🔵 is the blue hat - so write the emoji exactly as printed and never substitute a different circle, a colour word, or a heading for it.
+The section marker is the emoji on the left, and this mapping is fixed by codepoint rather than chosen by you: ⚪ is the white hat, ⚫ is the black hat, 🔵 is the blue hat. Those six glyphs are the only section markers allowed. Never substitute a look-alike - a face (🫥 🫄 🙂), a moon or a solid square (🌑 ⬛ ◼ ▪), or an outline or ring circle (○ ◯ ● ◉ ⊙ ⊚ ◆) - and never a colour word or a heading in place of the emoji. A hat opened with the wrong glyph counts as that hat not having run.
 
-⚪ White hat (facts): what data is actually available, what is missing, what would have to be measured.
-🔴 Red hat (gut): the honest emotional reaction of the people affected, with no justification.
-⚫ Black hat (risk): the failure mode, the worst realistic outcome, the fatal flaw, who gets hurt.
-🟡 Yellow hat (value): the best realistic outcome, the concrete benefit, why this could work.
-🟢 Green hat (alternatives): at least two different ways to get the same goal, including a cheaper or smaller one.
-🔵 Blue hat (control): the decision, the conditions that would change it, and the next actions with owners.
+⚪ U+26AA White hat (facts): what data is actually available, what is missing, what would have to be measured.
+🔴 U+1F534 Red hat (gut): the honest emotional reaction of the people affected, with no justification.
+⚫ U+26AB Black hat (risk): the failure mode, the worst realistic outcome, the fatal flaw, who gets hurt.
+🟡 U+1F7E1 Yellow hat (value): the best realistic outcome, the concrete benefit, why this could work.
+🟢 U+1F7E2 Green hat (alternatives): at least two different ways to get the same goal, including a cheaper or smaller one.
+🔵 U+1F535 Blue hat (control): the decision, the conditions that would change it, and the next actions with owners.
 
 Six sections, one per hat, each starting with its own emoji from the table above. ⚫ Black is its own section even if risk already appeared under another hat: naming a risk somewhere else does not count as the black hat, and a hat you have little to say about still gets at least one line.
 
@@ -497,7 +497,7 @@ All six or none: skipping 🟡 because there is nothing optimistic to say, or st
 The decision and the next actions.
 </answer>`,
 		compact:
-			"Evaluate through six separate sections, each opening with its fixed emoji - ⚪ facts, 🔴 gut reaction, ⚫ risks and fatal flaws, 🟡 benefits, 🟢 at least two alternatives, 🔵 decision plus next actions - all six sections, none skipped or merged, then an <answer> block.",
+			"Evaluate through six separate sections, each opening with its fixed emoji by codepoint - ⚪ U+26AA facts, 🔴 U+1F534 gut reaction, ⚫ U+26AB risks and fatal flaws, 🟡 U+1F7E1 benefits, 🟢 U+1F7E2 at least two alternatives, 🔵 U+1F535 decision plus next actions - never a look-alike glyph (🫥 🌑 ● ○ ⬛), all six sections, none skipped or merged, then an <answer> block.",
 		deep: "For ⚫ and 🟢 produce two additional items each, and in 🔵 state the reversal condition that would make you change the decision.",
 		steps: [
 			{ id: "white", label: "White hat (facts)", system: "You wear the white hat: facts and data only. No opinions, no risks, no ideas. Be explicit about what is missing.", user: "{{task}}", maxChars: 1200 },

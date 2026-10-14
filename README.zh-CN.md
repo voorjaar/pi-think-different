@@ -76,7 +76,7 @@ Harness gate (external control): pruned Branch_B (3/10). Build only on: Branch_A
 ### 说明
 
 - 范式处于开启状态时，每个回答都会用它——查询、改名、一行改动也不例外。琐碎只让结构变短，不会让结构消失。
-- 模型必须写出结构标记（`<thought_tree>`、`<draft>`、六顶帽子的 emoji），这样退化成正文的范式能被察觉；harness 把它们渲染成当前会话语言的加粗标签（`**Adversary angle**`，中文会话则是它的中文对应），不会让你看到标记 token。`hats` 按模型写下的原样显示。
+- 模型必须写出结构标记（`<thought_tree>`、`<draft>`、六顶帽子的 emoji），这样退化成正文的范式能被察觉；harness 把它们渲染成当前会话语言的加粗标签（`**Adversary angle**`，中文会话则是它的中文对应），不会让你看到标记 token。`hats` 按模型写下的原样显示，六个 emoji 由码位钉死（`⚫ U+26AB` 等）——否则模型会在黑帽的位置写一个长得像的符号（🫥、🌑、●）。
 
 ## 范式
 
@@ -125,7 +125,7 @@ Harness gate (external control): pruned Branch_B (3/10). Build only on: Branch_A
 ## 开发
 
 ```bash
-node --test tests/selftest.ts    # 97 个单元测试：无模型、无网络
+node --test tests/selftest.ts    # 98 个单元测试：无模型、无网络
 node tests/livecheck.mjs         # 针对真实 Pi 会话的端到端检查（18 用例）
 node tests/livecheck.mjs tot hats  # 只跑指定范式子集
 node tests/livecheck.mjs options   # 配置 startup、语言、放置、自然语言 /think
@@ -134,7 +134,7 @@ npm test                         # 单元测试
 npm run check                    # 单元测试 + 实跑检查
 ```
 
-单元测试覆盖纯逻辑模块：注册表与契约、提示词渲染、参数解析、配置分层、结构放置、自动选型、评分解析，以及用脚本化假模型驱动的工作流引擎。范式实跑检查会启动 `pi --mode json --think <范式> -p "<提示词>"`，如果回答里缺少该范式定义所依赖的任一标记就判定失败；选项检查在一个临时目录里跑 Pi，该目录的配置设定待验选项。如何在这个扩展上干活见 [AGENTS.md](./AGENTS.md)，「一个范式算不算正常工作」的定义见 [ROADMAP.md](./ROADMAP.md)。
+单元测试覆盖纯逻辑模块：注册表与契约、提示词渲染、参数解析、配置分层、结构放置、自动选型、评分解析，以及用脚本化假模型驱动的工作流引擎。范式实跑检查会启动 `pi --mode json --think <范式> -p "<提示词>"`，如果回答里缺少该范式定义所依赖的任一标记就判定失败；选项检查在一个临时目录里跑 Pi，该目录的配置设定待验选项。慢用例（`critique`、`startup:config`，以及 `think` 工具那条）各自带 900 秒 / 1500 秒的预算，所以全量跑需要一个 60 分钟以上的时间窗口；判定会随完成逐条打印，剩下的可以按名字补跑。如何在这个扩展上干活见 [AGENTS.md](./AGENTS.md)，「一个范式算不算正常工作」的定义见 [ROADMAP.md](./ROADMAP.md)。
 
 ## 许可证
 

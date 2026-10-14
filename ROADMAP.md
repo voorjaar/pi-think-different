@@ -44,7 +44,7 @@ as the model wrote it.
 Compliance shipped: while a paradigm is active every reply uses it - including trivial ones - stated in
 the contract and the skill rather than policed by a redo loop.
 
-Test coverage shipped: 97 unit tests over the pure modules, and 18 live cases (9 paradigms, the `think`
+Test coverage shipped: 98 unit tests over the pure modules, and 18 live cases (9 paradigms, the `think`
 tool in run mode, and 8 option cases: language, prose `/think`, `startup` from the project config,
 `startup` from the agent-level config, `thinking` placement, `random` switching, and the trivial-prompt
 mandate). Live cases run in scratch directories so a real user's own config layer cannot change a verdict.
@@ -76,7 +76,9 @@ Anything that only "looks thoughtful" in one transcript does not count.
   eyeballing cases.
 - **Degraded versus absent.** A run that merges two hat sections or renames a marker is a different
   failure from one that ignored the paradigm. Report both separately so a flake is not mistaken for a
-  broken paradigm.
+  broken paradigm. The recurring flake is the black hat circle: models write 🫥, 🫄, or 🌑 where `⚫` belongs.
+  The hats contract now pins all six emoji by codepoint (`⚫ U+26AB` and friends) and names those look-alikes
+  as a hat that did not run; `hats` stays `verbatimMarkers`, so the harness still does not rewrite them.
 
 ## Next: paradigms worth adding
 

@@ -80,8 +80,10 @@ Rules that keep this useful:
 - **Emit the paradigm's tags literally.** Each contract lists `Required markers, verbatim`. Write them
   on their own lines; do not swap a tag for a heading, bold label, emoji, table, or one big code fence.
   A paradigm that shows up as plain prose did not run, and the session's checks treat it as missing.
-  `hats` is the exception in form, not in discipline: its markers are the six fixed emoji (⚪🔴⚫🟡🟢🔵) plus
-  `<answer>`, and the harness shows those lines to the user exactly as written.
+  `hats` is the exception in form, not in discipline: its markers are the six fixed emoji pinned by codepoint
+  (⚪ U+26AA, 🔴 U+1F534, ⚫ U+26AB, 🟡 U+1F7E1, 🟢 U+1F7E2, 🔵 U+1F535) plus `<answer>`, and the harness shows
+  those lines to the user exactly as written. A look-alike glyph - 🫥, 🌑, ●, ○, ⬛ - is a missing hat, not a
+  stylistic variant; the black hat circle is the one models get wrong.
 - One paradigm per problem. Do not stack paradigms; pick the one matching the problem's shape.
 - After a `mode: "run"` result, act on the final step. Do not re-run the same paradigm on the same
   question hoping for a different verdict - add a constraint or a new piece of evidence instead.

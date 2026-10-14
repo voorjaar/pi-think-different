@@ -78,8 +78,8 @@ scripted fake model.
 ## Testing
 
 ```bash
-node --test tests/selftest.ts   # 97 tests, no model, no network, milliseconds - run after every change
-node tests/livecheck.mjs        # 18 real Pi sessions, 15-30 minutes - run only after the user has tested
+node --test tests/selftest.ts   # 98 tests, no model, no network, milliseconds - run after every change
+node tests/livecheck.mjs        # 18 real Pi sessions, 30-60 minutes at the 900 s / 1500 s case budgets - run in the background, only after the user has tested
 
 npm test                        # the unit suite
 npm run check                   # unit suite + live checks
@@ -99,6 +99,10 @@ npm run check                   # unit suite + live checks
 - Multi-call cases nest several model calls inside one Pi turn (`think` with `mode: "run"`); give them
   their own timeout multiplier instead of raising the global one. Verdicts must stream as they land - a
   harness that reports only at the end leaves zero evidence when it times out.
+- The **harness** needs a longer wall clock than any single case: `critique`, `startup:config`, and the
+  `tool:run` case carry 900 s / 1500 s budgets each, so a 45-minute budget truncates the suite part-way.
+  Run it in the background with 60+ minutes, and finish the missing cases by name
+  (`node tests/livecheck.mjs critique angles startup:config tool`) instead of re-running all 18.
 - A single dropped marker in one live run is usually model variance, not a regression: `livecheck.mjs`
   retries a `missing markers` verdict once and keeps the better attempt.
 
