@@ -118,6 +118,83 @@ Each new paradigm must ship both layers, not just a prompt.
 - Not a renderer with user-chosen styles. Labels are bold text in the session language; `hats` is
   verbatim. That is settled, not a preference to expose.
 
+## Open bugs found by pure-function probes (2026-10-14)
+
+Found by driving the pure modules with realistic model output - not by running Pi. Every one is reachable
+in normal use, and none of them is covered by the 91 unit tests, so a green suite is not evidence of
+correctness here. Reported without fixes: each fix changes visible behaviour and needs its own decision
+plus a regression test.
+
+**1. A task word hijacks the `/think` command.** `parseThinkArgs` (`src/render.ts`) accepts
+`help | list | status | off | auto | random | once | config | lang | placement` as a sub-command wherever
+the token appears, even after the paradigm token. The keyword wins, the paradigm is never applied, and the
+session state may change as a side effect:
+
+```text
+/think hats off the record on pricing        -> action=off      the paradigm is turned off
+/think debate config drift in prod           -> action=config   prints config paths only
+/think angles list the risks of the plan     -> action=list     prints the catalogue only
+/think cot status report for the migration   -> action=status
+/think first-principles auto scaling limits  -> action=auto     switches to auto mode
+```
+
+Fix direction: recognise command keywords only at token index 0. `lang zh`, `placement thinking`,
+`auto deep`, and `once hats deep` all keep working; nothing in the current suite depends on a keyword in a
+later position. Intensity tokens are a milder version of the same problem (`/think cot deep dive into the
+parser` silently loses "deep") and are usually harmless because that reading is the intended one.
+
+**2. `placement: "answer"` deletes the first line of a section.** The `labelOnly` test in
+`naturalizeMarkers` (`src/placement.ts`) treats a section's first line as a redundant label when it is
+under 48 characters and contains none of `。！？!?;，,` - and ASCII `.` is not in that set, so the only real
+discriminator is length. A short sentence of body text is then dropped from the answer the user reads:
+
+```text
+<thought_tree>
+[Branch_A] cron plus a lock file     <- 46 chars: deleted
+Score: 8/10
+</thought_tree>
+
+<angle:system>
+The scheduler is the only writer of the queue.   <- 46 chars: deleted
+Two hosts means two clocks that can disagree.    <- 51 chars: kept
+</angle:system>
+```
+
+Fix direction: drop the length heuristic. Treat the first line as a label only when it is genuinely a
+label - a `#{1,6}` heading, an explicit `Black: risk - …` prefix (already handled), or text that is
+redundant with the heading about to be printed.
+
+**3. `placement: "thinking"` corrupts text when spans nest.** The dedup filter in `extractStructure`
+compares each span only with the immediately previous sorted span instead of the running maximum end, so
+the *second* span nested inside an outer one survives. Cutting spans from the back then slices the already
+shortened string with stale offsets:
+
+```text
+input:  Intro prose that must survive. / <draft> ... <criticism>x</criticism> ... <refinement>y</refinement> ... </draft> / Closing prose that must survive.
+structure: <draft> ... Closing prose that must s      <- prose swallowed into the thinking block
+answer:    Intro prose that must survive. / urvive.   <- word fragment left behind
+```
+
+The same mechanism splits a hats section when one hat's body mentions another hat's emoji
+(`⚪ Facts: the ⚫ black hat is the one people skip`): the section is cut mid-way and its second line stays
+in the visible answer while the rest moves to thinking. Fix direction: compare against the running maximum
+end, in `extractStructure` and in the identical filter inside `naturalizeMarkers`.
+
+**4. `injectedParadigm` is never cleared.** `src/index.ts` assigns it in `before_agent_start` and nowhere
+resets it, so after `/think off` - or once `/think once <paradigm>` has been consumed - the next turn gets
+no contract injected but `message_end` still applies that paradigm's placement and debris rules to a plain
+answer. `cot` is the worst case: `<answer>` and `<reasoning>` are stripped from ordinary prose, including
+from a code block that quotes them.
+
+**5. Run-mode score parsing is loose.** `extractScores` accepts any `n/10` on a line, so prose containing
+"8/10 timeouts" or a date produces a phantom candidate and the gate note tells the next step to "Build only
+on: item-1 (8/10)". Conversely, a bracketed label on its own line followed by several `Score: n/10` lines
+yields one entry (labels are deduplicated), so the later scores are silently ignored.
+
+**6. Two cosmetic reporting gaps.** The `think` tool reports `cost` as all zeros while its token totals
+are real, and one step template in `paradigms.ts` already contains `{{limits}}`, so `runWorkflow` prints
+the harness budget line twice for that step.
+
 ## Known rough edges
 
 - Marker checks are strict, and strictness is deliberate: a paradigm that degrades into prose must fail

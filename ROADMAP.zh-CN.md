@@ -86,6 +86,54 @@
 - 不是为某一个模型调提示词。契约是为了在较弱的模型上也能成立而写的，这正是剪枝留在代码里的原因。
 - 不是可自选样式的渲染器。标签就是当前会话语言的加粗文本，`hats` 原样显示。这件事已经定案，不再作为一个偏好暴露出来。
 
+## 用纯函数探针发现的开放 bug（2026-10-14）
+
+这些不是跑 Pi 发现的，而是拿真实的模型输出形状去驱动纯模块发现的。每一个在正常使用里都会发生，而 91 个单元测试一个都没覆盖到——所以在这里「单测全绿」不等于正确。刻意只报告不修：每一个修法都会改变可见行为，需要各自的决定加一条回归测试。
+
+**1. 任务里的词劫持了 `/think` 命令。** `src/render.ts` 的 `parseThinkArgs` 在任何位置都接受 `help | list | status | off | auto | random | once | config | lang | placement` 作为子命令，即使前面已经出现过范式 token。关键词赢，范式根本没生效，而且会话状态会被顺手改掉：
+
+```text
+/think hats off the record on pricing        -> action=off      the paradigm is turned off
+/think debate config drift in prod           -> action=config   prints config paths only
+/think angles list the risks of the plan     -> action=list     prints the catalogue only
+/think cot status report for the migration   -> action=status
+/think first-principles auto scaling limits  -> action=auto     switches to auto mode
+```
+
+修法方向：命令关键词只认 token 索引 0。`lang zh`、`placement thinking`、`auto deep`、`once hats deep` 全部照常工作；现有测试没有任何一条依赖关键词出现在后面的位置。强度 token 是同一个问题的较轻版本（`/think cot deep dive into the parser` 会静默吃掉 "deep"），而且通常无害，因为那种读法往往正是用户想要的。
+
+**2. `placement: "answer"` 会删掉小节的第一行。** `src/placement.ts` 里 `naturalizeMarkers` 的 `labelOnly` 判据是：小节首行不足 48 字符、且不含 `。！？!?;，,` 中的任何一个，就认定它是冗余标签并删除——而 ASCII 的 `.` 不在那个集合里，所以真正起作用的判据只剩长度。于是一段正文会从用户阅读的答案里消失：
+
+```text
+<thought_tree>
+[Branch_A] cron plus a lock file     <- 46 chars: deleted
+Score: 8/10
+</thought_tree>
+
+<angle:system>
+The scheduler is the only writer of the queue.   <- 46 chars: deleted
+Two hosts means two clocks that can disagree.    <- 51 chars: kept
+</angle:system>
+```
+
+修法方向：丢掉长度启发式。只有当首行确实是标签时才删——`#{1,6}` 标题、显式的 `Black: risk - …` 前缀（已经处理过）、或者与即将打印的标题本身冗余的文本。
+
+**3. `placement: "thinking"` 在小节嵌套时把文本切碎。** `extractStructure` 的去重只把每个 span 和前一个排序后的 span 比，而不是和「目前最大的 end」比，于是外层 span 里的**第二个**嵌套 span 被保留。再从后往前切时，前面 span 的偏移在已经变短的字符串上失效：
+
+```text
+input:  Intro prose that must survive. / <draft> ... <criticism>x</criticism> ... <refinement>y</refinement> ... </draft> / Closing prose that must survive.
+structure: <draft> ... Closing prose that must s      <- prose swallowed into the thinking block
+answer:    Intro prose that must survive. / urvive.   <- word fragment left behind
+```
+
+同一机制在 hats 上更常见：一顶帽子的正文里提到另一顶帽子的 emoji（`⚪ Facts: the ⚫ black hat is the one people skip`）时，小节会从中间被劈开，正文第二行留在可见答案里，其余搬进思考块。修法方向：与目前最大的结束偏移比较，`extractStructure` 和 `naturalizeMarkers` 里同一处 filter 一起改。
+
+**4. `injectedParadigm` 从不清空。** `src/index.ts` 只在 `before_agent_start` 里赋值，没有任何地方重置。所以 `/think off` 之后——或者 `/think once <paradigm>` 用完之后——下一轮并没有注入契约，但 `message_end` 仍然按那个旧范式的 placement 和残迹清理规则处理一个普通回答。`cot` 是最糟的情况：`<answer>` 和 `<reasoning>` 会从普通正文里被剥掉，包括引用它们的代码块。
+
+**5. run 模式的分数解析太松。** `extractScores` 接受任意一行上的 `n/10`，所以正文里出现「8/10 timeouts」或一个日期就会造出一个假候选，gate 注记接着告诉下一步「Build only on: item-1 (8/10)」。反过来，一行只写方括号标签、后面跟多条 `Score: n/10` 时只会产出一条记录（label 会去重），后面的分数被静默忽略。
+
+**6. 两处上报上的装饰性问题。** `think` 工具把 `cost` 报成全 0，而它的 token 累加是真实的；`paradigms.ts` 里有一个步骤模板已经含 `{{limits}}`，所以 `runWorkflow` 会为那个步骤把 harness 预算行打印两次。
+
 ## 已知的粗糙处
 
 - 标记检查是严格的，而且严格是刻意的：退化成正文的范式必须大声失败。代价是带 emoji 标记的范式偶发抖动，所以「缺标记」的判定会重试一次并保留更好的那次结果。
